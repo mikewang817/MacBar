@@ -11,6 +11,7 @@ struct MenuBarRootView: View {
     @ObservedObject var store: MacBarStore
     @ObservedObject var localizationManager: LocalizationManager
     let navigator: SettingsNavigator
+    let onPreferredSizeChange: ((CGSize) -> Void)?
     @State private var focusedField: SearchField?
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
@@ -26,6 +27,12 @@ struct MenuBarRootView: View {
 
     private let mainWidth: CGFloat = 460
     private let previewWidth: CGFloat = 320
+    private let panelHeight: CGFloat = 620
+
+    private var preferredPanelSize: CGSize {
+        let previewPaneWidth: CGFloat = showPreview ? (previewWidth + 1) : 0
+        return CGSize(width: mainWidth + previewPaneWidth, height: panelHeight)
+    }
 
     private var showPreview: Bool {
         switch store.activePanel {
@@ -92,9 +99,10 @@ struct MenuBarRootView: View {
             .padding(14)
             .frame(width: mainWidth)
         }
-        .frame(height: 620)
+        .frame(height: panelHeight)
         .animation(.easeInOut(duration: 0.2), value: showPreview)
         .onAppear {
+            onPreferredSizeChange?(preferredPanelSize)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 switch store.activePanel {
                 case .settings: focusedField = .settings
@@ -107,6 +115,9 @@ struct MenuBarRootView: View {
             syncSelectedClipboardItem()
             syncSelectedTodoItem()
             installKeyMonitorIfNeeded()
+        }
+        .onChange(of: showPreview) { _ in
+            onPreferredSizeChange?(preferredPanelSize)
         }
         .onChange(of: store.activePanel) { newPanel in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -148,11 +159,7 @@ struct MenuBarRootView: View {
             case .settings: openSelectedSetting()
             case .clipboard: copySelectedClipboardItem()
             case .todo:
-                if isTodoInputEditing {
-                    submitTodoInput()
-                } else {
-                    toggleSelectedTodoCompleted()
-                }
+                break
             }
         }
         .alert(alertTitle, isPresented: $isFeedbackAlertPresented) {
@@ -943,21 +950,34 @@ struct MenuBarRootView: View {
                 .frame(minWidth: 180, maxWidth: .infinity)
 
             Button {
-                let panels = AppPanel.allCases
-                if let idx = panels.firstIndex(of: store.activePanel) {
-                    store.activePanel = panels[(idx + 1) % panels.count]
-                }
+                switchPanel(delta: 1)
             } label: {
                 Image(systemName: "switch.2")
                     .font(.title2)
                     .foregroundStyle(.orange)
             }
             .buttonStyle(.plain)
-            .help(
-                store.activePanel == .settings
-                    ? store.localized("ui.panel.clipboard")
-                    : store.localized("ui.panel.settings")
-            )
+            .help(localizedPanelTitle(nextPanel(after: store.activePanel)))
+        }
+    }
+
+    private func nextPanel(after panel: AppPanel) -> AppPanel {
+        let panels = AppPanel.allCases
+        guard let index = panels.firstIndex(of: panel), !panels.isEmpty else {
+            return panel
+        }
+
+        return panels[(index + 1) % panels.count]
+    }
+
+    private func localizedPanelTitle(_ panel: AppPanel) -> String {
+        switch panel {
+        case .settings:
+            return store.localized("ui.panel.settings")
+        case .clipboard:
+            return store.localized("ui.panel.clipboard")
+        case .todo:
+            return store.localized("ui.panel.todo")
         }
     }
 
@@ -1658,7 +1678,7 @@ struct MenuBarRootView: View {
             switch store.activePanel {
             case .settings: openSelectedSetting()
             case .clipboard: copySelectedClipboardItem()
-            case .todo: return false // let TextField onSubmit handle it
+            case .todo: toggleSelectedTodoCompleted()
             }
             return true
         case 51, 117: // backspace / forward delete
@@ -1693,13 +1713,13 @@ struct MenuBarRootView: View {
 
     private func switchPanel(delta: Int) {
         let panels = AppPanel.allCases
-        guard let currentIndex = panels.firstIndex(of: store.activePanel) else {
+        guard let currentIndex = panels.firstIndex(of: store.activePanel),
+              !panels.isEmpty else {
             return
         }
-        let nextIndex = currentIndex + delta
-        guard nextIndex >= 0, nextIndex < panels.count else {
-            return
-        }
+
+        let normalizedDelta = delta % panels.count
+        let nextIndex = (currentIndex + normalizedDelta + panels.count) % panels.count
         store.activePanel = panels[nextIndex]
     }
 
