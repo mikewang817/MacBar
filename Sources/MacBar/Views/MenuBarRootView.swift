@@ -19,12 +19,18 @@ struct MenuBarRootView: View {
     @State private var keyDownMonitor: Any?
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
+    @StateObject private var quickControls = QuickControlsState()
 
     private let mainWidth: CGFloat = 460
     private let previewWidth: CGFloat = 320
 
     private var showPreview: Bool {
-        store.activePanel == .clipboard && selectedClipboardItem != nil
+        switch store.activePanel {
+        case .clipboard:
+            return selectedClipboardItem != nil
+        case .settings:
+            return selectedSettingsDestination != nil
+        }
     }
 
     private var selectedClipboardItem: ClipboardItem? {
@@ -32,13 +38,24 @@ struct MenuBarRootView: View {
         return clipboardNavigationItems.first { $0.id == selectedClipboardItemID }
     }
 
+    private var selectedSettingsDestination: SettingsDestination? {
+        guard let selectedSettingsDestinationID else { return nil }
+        return settingsNavigationItems.first { $0.id == selectedSettingsDestinationID }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // Preview pane (left side, slides in)
-            if showPreview, let item = selectedClipboardItem {
-                clipboardPreviewPane(item: item)
-                    .frame(width: previewWidth)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+            if showPreview {
+                Group {
+                    if store.activePanel == .clipboard, let item = selectedClipboardItem {
+                        clipboardPreviewPane(item: item)
+                    } else if store.activePanel == .settings, let dest = selectedSettingsDestination {
+                        settingsPreviewPane(destination: dest)
+                    }
+                }
+                .frame(width: previewWidth)
+                .transition(.move(edge: .leading).combined(with: .opacity))
 
                 Divider()
             }
@@ -142,6 +159,9 @@ struct MenuBarRootView: View {
                     Text(store.localized("ui.clipboard.item.characters", item.characterCount))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text(store.localized("ui.clipboard.item.words", item.wordCount))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Text(store.clipboardCapturedAtLabel(for: item))
                     .font(.caption)
@@ -156,10 +176,7 @@ struct MenuBarRootView: View {
                 Text("Enter → \(store.localized("ui.clipboard.button.copy"))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                let isPinned = store.isClipboardItemPinned(item.id)
-                Text(isPinned
-                     ? store.localized("ui.clipboard.help.unpin")
-                     : store.localized("ui.clipboard.help.pin"))
+                Text("Delete → \(store.localized("ui.clipboard.help.delete"))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -168,6 +185,537 @@ struct MenuBarRootView: View {
         }
     }
 
+    // MARK: - Inline settings preview
+
+    private func settingsPreviewPane(destination: SettingsDestination) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 12) {
+                Image(systemName: destination.symbolName)
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+
+                Text(store.localizedTitle(for: destination))
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+
+                Text(store.localizedSubtitle(for: destination))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(16)
+
+            if !destination.quickLinks.isEmpty {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(store.localized("ui.help.quickLinks"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(destination.quickLinks) { quickLink in
+                        Button {
+                            open(quickLink, in: destination)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.right.circle")
+                                    .font(.caption)
+                                Text(quickLink.localizedTitle(using: localizationManager))
+                                    .font(.caption)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.primary)
+                    }
+                }
+                .padding(12)
+            }
+
+            quickControlsSection(for: destination)
+
+            Spacer(minLength: 0)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(destination.category.localizedTitle(using: localizationManager))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Enter → \(store.localized("ui.button.open"))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .task(id: destination.id) {
+            quickControls.invalidate()
+            quickControls.loadValues(for: destination.id)
+        }
+    }
+
+    // MARK: - Quick Controls
+
+    private static let quickControlDestinations: Set<String> = [
+        "displays", "sound", "mouse", "trackpad", "keyboard", "wifi",
+        "bluetooth", "network", "battery", "accessibility", "notifications",
+        "date-time", "login-items", "software-update"
+    ]
+
+    @ViewBuilder
+    private func quickControlsSection(for destination: SettingsDestination) -> some View {
+        if Self.quickControlDestinations.contains(destination.id) {
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(store.localized("ui.quickControls.info"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    switch destination.id {
+                    case "displays": displaysInfoView
+                    case "sound": soundInfoView
+                    case "mouse": mouseInfoView
+                    case "trackpad": trackpadInfoView
+                    case "keyboard": keyboardInfoView
+                    case "wifi": wifiInfoView
+                    case "bluetooth": bluetoothInfoView
+                    case "network": networkInfoView
+                    case "battery": batteryInfoView
+                    case "accessibility": accessibilityInfoView
+                    case "notifications": notificationsInfoView
+                    case "date-time": dateTimeInfoView
+                    case "login-items": loginItemsInfoView
+                    case "software-update": softwareUpdateInfoView
+                    default: EmptyView()
+                    }
+                }
+                .padding(12)
+            }
+        }
+    }
+
+    // MARK: Displays — info only
+
+    private var displaysInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "sun.max",
+                label: store.localized("ui.quickControls.darkMode"),
+                value: quickControls.isDarkMode ? "On" : "Off"
+            )
+            infoRow(
+                icon: "paintpalette",
+                label: store.localized("ui.quickControls.accentColor"),
+                value: accentColorName
+            )
+            if let name = quickControls.displayName {
+                infoRow(icon: "display", label: store.localized("ui.info.displayName"), value: name)
+            }
+            if let res = quickControls.displayResolution {
+                infoRow(icon: "rectangle.dashed", label: store.localized("ui.info.resolution"), value: res)
+            }
+            if let gpu = quickControls.gpuName {
+                infoRow(icon: "cpu", label: "GPU", value: gpu)
+            }
+            if let cores = quickControls.gpuCores {
+                infoRow(icon: "square.grid.3x3", label: store.localized("ui.info.gpuCores"), value: cores)
+            }
+            if let metal = quickControls.metalVersion {
+                infoRow(icon: "diamond", label: "Metal", value: metal)
+            }
+            infoRow(
+                icon: "sun.min",
+                label: store.localized("ui.info.autoBrightness"),
+                value: quickControls.autoBrightness ? "On" : "Off"
+            )
+        }
+    }
+
+    private var accentColorName: String {
+        let map: [Int: String] = [
+            0: "Red", 1: "Orange", 2: "Yellow", 3: "Green",
+            4: "Blue", 5: "Purple", 6: "Pink", -1: "Graphite",
+        ]
+        guard let value = quickControls.accentColorValue else { return "Multicolor" }
+        return map[value] ?? "Blue"
+    }
+
+    // MARK: Sound — info only
+
+    private var soundInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: quickControls.isOutputMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                label: store.localized("ui.quickControls.outputVolume"),
+                value: quickControls.outputVolume.map { "\($0)%" } ?? "–"
+            )
+            infoRow(
+                icon: "speaker.slash",
+                label: store.localized("ui.quickControls.mute"),
+                value: quickControls.isOutputMuted ? "On" : "Off"
+            )
+            if let device = quickControls.defaultOutputDevice {
+                infoRow(icon: "hifispeaker", label: store.localized("ui.info.outputDevice"), value: device)
+            }
+
+            Divider()
+
+            infoRow(
+                icon: "mic.fill",
+                label: store.localized("ui.quickControls.inputVolume"),
+                value: quickControls.inputVolume.map { "\($0)%" } ?? "–"
+            )
+            if let device = quickControls.defaultInputDevice {
+                infoRow(icon: "mic", label: store.localized("ui.info.inputDevice"), value: device)
+            }
+
+            Divider()
+
+            infoRow(
+                icon: "bell.fill",
+                label: store.localized("ui.quickControls.alertVolume"),
+                value: quickControls.alertVolume.map { "\($0)%" } ?? "–"
+            )
+        }
+    }
+
+    // MARK: Mouse — info only
+
+    private var mouseInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "computermouse",
+                label: store.localized("ui.quickControls.trackingSpeed"),
+                value: String(format: "%.1f", quickControls.mouseTrackingSpeed)
+            )
+            infoRow(
+                icon: "scroll",
+                label: store.localized("ui.quickControls.scrollSpeed"),
+                value: String(format: "%.1f", quickControls.mouseScrollSpeed)
+            )
+            infoRow(
+                icon: "arrow.up.arrow.down",
+                label: store.localized("ui.quickControls.naturalScroll"),
+                value: quickControls.isNaturalScrollEnabled ? "On" : "Off"
+            )
+        }
+    }
+
+    // MARK: Trackpad — info only
+
+    private var trackpadInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "hand.point.up",
+                label: store.localized("ui.quickControls.trackingSpeed"),
+                value: String(format: "%.1f", quickControls.trackpadTrackingSpeed)
+            )
+            infoRow(
+                icon: "hand.tap",
+                label: store.localized("ui.quickControls.tapToClick"),
+                value: quickControls.isTapToClickEnabled ? "On" : "Off"
+            )
+            infoRow(
+                icon: "hand.draw",
+                label: store.localized("ui.quickControls.threeFingerDrag"),
+                value: quickControls.isThreeFingerDragEnabled ? "On" : "Off"
+            )
+        }
+    }
+
+    // MARK: Keyboard — info only
+
+    private var keyboardInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "repeat",
+                label: store.localized("ui.quickControls.keyRepeat"),
+                value: String(format: "%.0f ms", quickControls.keyRepeatInterval * 1000)
+            )
+            infoRow(
+                icon: "timer",
+                label: store.localized("ui.quickControls.delayUntilRepeat"),
+                value: String(format: "%.1f s", quickControls.keyRepeatDelay)
+            )
+        }
+    }
+
+    // MARK: Wi-Fi — info only
+
+    private var wifiInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "wifi",
+                label: store.localized("ui.quickControls.wifi"),
+                value: quickControls.isWiFiEnabled ? "On" : "Off"
+            )
+            if let ssid = quickControls.currentSSID {
+                infoRow(icon: "wifi.circle", label: "SSID", value: ssid)
+            }
+            if let mac = quickControls.wifiMACAddress {
+                infoRow(icon: "number", label: "MAC", value: mac)
+            }
+        }
+    }
+
+    // MARK: Bluetooth — info only
+
+    private var bluetoothInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "antenna.radiowaves.left.and.right",
+                label: store.localized("ui.quickControls.bluetooth.power"),
+                value: quickControls.isBluetoothOn ? "On" : "Off"
+            )
+            if let version = quickControls.bluetoothVersion {
+                infoRow(icon: "info.circle", label: "BLE", value: version)
+            }
+
+            if !quickControls.connectedBluetoothDevices.isEmpty {
+                Divider()
+                Text(store.localized("ui.quickControls.bluetooth.connected"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(quickControls.connectedBluetoothDevices, id: \.self) { device in
+                    infoRow(icon: "wave.3.right", label: device)
+                }
+            }
+
+            if !quickControls.pairedBluetoothDevices.isEmpty {
+                Divider()
+                Text(store.localized("ui.info.bluetooth.paired"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(quickControls.pairedBluetoothDevices, id: \.self) { device in
+                    infoRow(icon: "link", label: device)
+                }
+            }
+
+            if quickControls.connectedBluetoothDevices.isEmpty && quickControls.pairedBluetoothDevices.isEmpty {
+                Text(store.localized("ui.quickControls.bluetooth.noDevices"))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    // MARK: Network — info only
+
+    private var networkInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "network",
+                label: store.localized("ui.quickControls.network.localIP"),
+                value: quickControls.localIP ?? store.localized("ui.quickControls.network.noIP")
+            )
+            if let router = quickControls.routerIP {
+                infoRow(icon: "wifi.router", label: store.localized("ui.info.network.router"), value: router)
+            }
+            if let mask = quickControls.subnetMask {
+                infoRow(icon: "square.grid.2x2", label: store.localized("ui.info.network.subnet"), value: mask)
+            }
+
+            if !quickControls.dnsServers.isEmpty {
+                Divider()
+                Text(store.localized("ui.quickControls.network.dns"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(quickControls.dnsServers, id: \.self) { dns in
+                    Text(dns)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.primary)
+                }
+            }
+        }
+    }
+
+    // MARK: Battery — info only
+
+    private var batteryInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let pct = quickControls.batteryPercentage {
+                HStack(spacing: 8) {
+                    Image(systemName: batteryIcon)
+                        .font(.title3)
+                        .foregroundStyle(pct <= 20 ? .red : .green)
+                    Text("\(pct)%")
+                        .font(.title3.monospacedDigit().weight(.semibold))
+                }
+
+                if quickControls.isBatteryCharging {
+                    infoRow(icon: "bolt.fill", label: store.localized("ui.quickControls.battery.charging"))
+                } else if quickControls.isBatteryPluggedIn {
+                    infoRow(icon: "powerplug.fill", label: store.localized("ui.quickControls.battery.pluggedIn"))
+                } else {
+                    infoRow(icon: "battery.100", label: store.localized("ui.quickControls.battery.onBattery"))
+                }
+            }
+
+            if let time = quickControls.batteryTimeRemaining {
+                infoRow(icon: "clock", label: store.localized("ui.info.battery.timeRemaining"), value: time)
+            }
+
+            Divider()
+
+            if let capacity = quickControls.batteryMaxCapacity {
+                infoRow(
+                    icon: "gauge.with.dots.needle.bottom.50percent",
+                    label: store.localized("ui.info.battery.maxCapacity"),
+                    value: capacity
+                )
+            }
+
+            if let cycles = quickControls.batteryCycleCount {
+                infoRow(
+                    icon: "arrow.triangle.2.circlepath",
+                    label: store.localized("ui.quickControls.battery.cycleCount"),
+                    value: "\(cycles)"
+                )
+            }
+
+            if let condition = quickControls.batteryCondition {
+                infoRow(
+                    icon: "heart.fill",
+                    label: store.localized("ui.quickControls.battery.condition"),
+                    value: condition
+                )
+            }
+        }
+    }
+
+    private var batteryIcon: String {
+        guard let pct = quickControls.batteryPercentage else { return "battery.0" }
+        if quickControls.isBatteryCharging { return "battery.100.bolt" }
+        switch pct {
+        case 76...100: return "battery.100"
+        case 51...75: return "battery.75"
+        case 26...50: return "battery.50"
+        case 1...25: return "battery.25"
+        default: return "battery.0"
+        }
+    }
+
+    // MARK: Accessibility — info only
+
+    private var accessibilityInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "figure.walk",
+                label: store.localized("ui.quickControls.accessibility.reduceMotion"),
+                value: quickControls.isReduceMotionEnabled ? "On" : "Off"
+            )
+            infoRow(
+                icon: "square.on.square",
+                label: store.localized("ui.quickControls.accessibility.reduceTransparency"),
+                value: quickControls.isReduceTransparencyEnabled ? "On" : "Off"
+            )
+            infoRow(
+                icon: "circle.lefthalf.filled",
+                label: store.localized("ui.quickControls.accessibility.increaseContrast"),
+                value: quickControls.isIncreaseContrastEnabled ? "On" : "Off"
+            )
+        }
+    }
+
+    // MARK: Notifications — info only
+
+    private var notificationsInfoView: some View {
+        infoRow(
+            icon: "moon.fill",
+            label: store.localized("ui.quickControls.notifications.dnd"),
+            value: quickControls.isFocusEnabled ? "On" : "Off"
+        )
+    }
+
+    // MARK: Date & Time — info only
+
+    private var dateTimeInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            infoRow(
+                icon: "clock",
+                label: store.localized("ui.quickControls.dateTime.24hour"),
+                value: quickControls.is24HourClock ? "On" : "Off"
+            )
+            infoRow(
+                icon: "globe",
+                label: store.localized("ui.quickControls.dateTime.timezone"),
+                value: quickControls.currentTimezone
+            )
+        }
+    }
+
+    // MARK: Login Items — info only
+
+    private var loginItemsInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if quickControls.loginItems.isEmpty {
+                Text(store.localized("ui.quickControls.loginItems.empty"))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(quickControls.loginItems, id: \.self) { item in
+                    infoRow(icon: "app.badge", label: item)
+                }
+            }
+        }
+    }
+
+    // MARK: Software Update — info only
+
+    private var softwareUpdateInfoView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let count = quickControls.pendingUpdates, count > 0 {
+                infoRow(
+                    icon: "arrow.down.circle.fill",
+                    label: store.localized("ui.quickControls.softwareUpdate.pending"),
+                    value: "\(count)"
+                )
+            } else {
+                infoRow(
+                    icon: "checkmark.circle.fill",
+                    label: store.localized("ui.quickControls.softwareUpdate.upToDate")
+                )
+            }
+
+            if let date = quickControls.lastUpdateCheck {
+                infoRow(
+                    icon: "clock",
+                    label: store.localized("ui.quickControls.softwareUpdate.lastCheck"),
+                    value: date
+                )
+            }
+        }
+    }
+
+    // MARK: Shared Helpers
+
+    private func infoRow(icon: String, label: String, value: String? = nil) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.primary)
+            if let value {
+                Spacer()
+                Text(value)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -587,6 +1135,12 @@ struct MenuBarRootView: View {
                 copySelectedClipboardItem()
             }
             return true
+        case 51, 117: // backspace / forward delete
+            if store.activePanel == .clipboard {
+                deleteSelectedClipboardItem()
+                return true
+            }
+            return false
         default:
             return false
         }
@@ -684,6 +1238,27 @@ struct MenuBarRootView: View {
             .flatMap { id in items.first(where: { $0.id == id }) } ?? items[0]
         selectedClipboardItemID = selected.id
         _ = store.copyClipboardItem(selected.id)
+    }
+
+    private func deleteSelectedClipboardItem() {
+        let items = clipboardNavigationItems
+        guard !items.isEmpty,
+              let selectedID = selectedClipboardItemID,
+              let currentIndex = items.firstIndex(where: { $0.id == selectedID })
+        else {
+            return
+        }
+
+        store.deleteClipboardItem(selectedID)
+
+        // Select the next item, or the previous if we deleted the last one
+        let updatedItems = clipboardNavigationItems
+        if updatedItems.isEmpty {
+            selectedClipboardItemID = nil
+        } else {
+            let nextIndex = min(currentIndex, updatedItems.count - 1)
+            selectedClipboardItemID = updatedItems[nextIndex].id
+        }
     }
 
     private func copyPinnedClipboardItemByIndex(_ index: Int) {

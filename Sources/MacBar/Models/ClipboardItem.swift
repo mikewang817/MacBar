@@ -62,4 +62,16 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
 
         return content.count
     }
+
+    var wordCount: Int {
+        if isImage {
+            return 0
+        }
+
+        var count = 0
+        content.enumerateSubstrings(in: content.startIndex..., options: [.byWords, .localized]) { _, _, _, _ in
+            count += 1
+        }
+        return count
+    }
 }
