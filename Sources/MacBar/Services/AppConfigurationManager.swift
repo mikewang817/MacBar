@@ -2,40 +2,7 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-final class AppConfigurationManager: NSObject {
-    static let didReceiveRemoteConfigurationNotification = Notification.Name("macbar.didReceiveRemoteConfiguration")
-
-    private let cloudStore: NSUbiquitousKeyValueStore
-    private let notificationCenter: NotificationCenter
-    private let fileManager: FileManager
-    private let cloudConfigurationKey = "macbar.configuration.v1"
-
-    init(
-        cloudStore: NSUbiquitousKeyValueStore = .default,
-        notificationCenter: NotificationCenter = .default,
-        fileManager: FileManager = .default
-    ) {
-        self.cloudStore = cloudStore
-        self.notificationCenter = notificationCenter
-        self.fileManager = fileManager
-        super.init()
-
-        notificationCenter.addObserver(
-            self,
-            selector: #selector(handleCloudStoreChanged(_:)),
-            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: cloudStore
-        )
-    }
-
-    deinit {
-        notificationCenter.removeObserver(
-            self,
-            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: cloudStore
-        )
-    }
-
+final class AppConfigurationManager {
     func makeConfiguration(favoriteIDs: Set<String>, selectedLanguageCode: String) -> AppConfiguration {
         AppConfiguration(
             schemaVersion: AppConfiguration.currentSchemaVersion,
@@ -110,59 +77,5 @@ final class AppConfigurationManager: NSObject {
         }
 
         return configuration
-    }
-
-    func syncToICloud(_ configuration: AppConfiguration) throws {
-        guard isICloudAvailable else {
-            throw AppConfigurationError.iCloudUnavailable
-        }
-
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(configuration) else {
-            throw AppConfigurationError.encodeFailed
-        }
-
-        cloudStore.set(data, forKey: cloudConfigurationKey)
-        _ = cloudStore.synchronize()
-    }
-
-    func syncFromICloud() throws -> AppConfiguration {
-        guard isICloudAvailable else {
-            throw AppConfigurationError.iCloudUnavailable
-        }
-
-        _ = cloudStore.synchronize()
-
-        guard let data = cloudStore.data(forKey: cloudConfigurationKey) else {
-            throw AppConfigurationError.noRemoteConfiguration
-        }
-
-        let decoder = JSONDecoder()
-        guard let configuration = try? decoder.decode(AppConfiguration.self, from: data) else {
-            throw AppConfigurationError.decodeFailed
-        }
-
-        guard configuration.schemaVersion == AppConfiguration.currentSchemaVersion else {
-            throw AppConfigurationError.invalidPayload
-        }
-
-        return configuration
-    }
-
-    var isICloudAvailable: Bool {
-        fileManager.ubiquityIdentityToken != nil
-    }
-
-    @objc
-    private func handleCloudStoreChanged(_ notification: Notification) {
-        guard let changedKeys = notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String],
-              changedKeys.contains(cloudConfigurationKey) else {
-            return
-        }
-
-        notificationCenter.post(
-            name: Self.didReceiveRemoteConfigurationNotification,
-            object: self
-        )
     }
 }

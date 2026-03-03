@@ -7,8 +7,6 @@
 "ui.button.quit" = "Quit MacBar";
 "ui.button.open" = "Open";
 "ui.config.menu" = "Config";
-"ui.config.syncToICloud" = "Sync to iCloud";
-"ui.config.syncFromICloud" = "Sync from iCloud";
 "ui.config.export" = "Export Config…";
 "ui.config.import" = "Import Config…";
 "ui.help.favorite.remove" = "Remove from favorites";
@@ -91,10 +89,6 @@
 "feedback.configuration.title" = "Configuration";
 "feedback.configuration.exported" = "Configuration exported to %@";
 "feedback.configuration.imported" = "Configuration imported successfully.";
-"feedback.configuration.syncedToICloud" = "Configuration synced to iCloud.";
-"feedback.configuration.syncedFromICloud" = "Configuration synced from iCloud.";
-"feedback.configuration.error.iCloudUnavailable" = "iCloud is unavailable on this Mac.";
-"feedback.configuration.error.noRemoteConfiguration" = "No remote configuration found in iCloud.";
 "feedback.configuration.error.invalidFile" = "The selected file is not a valid MacBar configuration.";
 "feedback.configuration.error.writeFailed" = "Unable to write the configuration file.";
 "feedback.configuration.error.readFailed" = "Unable to read the selected configuration file.";

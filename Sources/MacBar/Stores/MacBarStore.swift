@@ -23,7 +23,6 @@ final class MacBarStore: ObservableObject {
     private let inputDeviceMonitor: InputDeviceMonitor
     private let localizationManager: LocalizationManager
     private let configurationManager: AppConfigurationManager
-    private var isApplyingRemoteConfiguration = false
     private var cancellables: Set<AnyCancellable> = []
 
     private enum Keys {
@@ -56,16 +55,6 @@ final class MacBarStore: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
-
-        NotificationCenter.default.publisher(
-            for: AppConfigurationManager.didReceiveRemoteConfigurationNotification,
-            object: configurationManager
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _ in
-            self?.applyRemoteConfigurationSilently()
-        }
-        .store(in: &cancellables)
     }
 
     var isSearching: Bool {
@@ -188,25 +177,6 @@ final class MacBarStore: ObservableObject {
         }
     }
 
-    func syncConfigurationToICloud() -> StoreFeedback? {
-        do {
-            try configurationManager.syncToICloud(currentConfiguration())
-            return makeFeedback(messageKey: "feedback.configuration.syncedToICloud")
-        } catch {
-            return feedbackForConfigurationError(error)
-        }
-    }
-
-    func syncConfigurationFromICloud() -> StoreFeedback? {
-        do {
-            let remoteConfiguration = try configurationManager.syncFromICloud()
-            apply(configuration: remoteConfiguration)
-            return makeFeedback(messageKey: "feedback.configuration.syncedFromICloud")
-        } catch {
-            return feedbackForConfigurationError(error)
-        }
-    }
-
     private func orderedDestinations(fromIDs ids: [String]) -> [SettingsDestination] {
         var ordered: [SettingsDestination] = []
 
@@ -243,24 +213,6 @@ final class MacBarStore: ObservableObject {
         localizationManager.selectLanguage(code: configuration.selectedLanguageCode)
     }
 
-    private func applyRemoteConfigurationSilently() {
-        guard !isApplyingRemoteConfiguration else {
-            return
-        }
-
-        do {
-            isApplyingRemoteConfiguration = true
-            defer {
-                isApplyingRemoteConfiguration = false
-            }
-
-            let remoteConfiguration = try configurationManager.syncFromICloud()
-            apply(configuration: remoteConfiguration)
-        } catch {
-            // Ignore remote sync errors in silent path.
-        }
-    }
-
     private func makeFeedback(messageKey: String, arguments: [CVarArg] = []) -> StoreFeedback {
         StoreFeedback(
             title: localized("feedback.configuration.title"),
@@ -274,10 +226,6 @@ final class MacBarStore: ObservableObject {
         let messageKey: String
 
         switch error {
-        case AppConfigurationError.iCloudUnavailable:
-            messageKey = "feedback.configuration.error.iCloudUnavailable"
-        case AppConfigurationError.noRemoteConfiguration:
-            messageKey = "feedback.configuration.error.noRemoteConfiguration"
         case AppConfigurationError.decodeFailed, AppConfigurationError.invalidPayload:
             messageKey = "feedback.configuration.error.invalidFile"
         case AppConfigurationError.writeFailed:

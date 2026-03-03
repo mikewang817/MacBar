@@ -10,8 +10,6 @@ struct AppConfiguration: Codable {
 
 enum AppConfigurationError: Error {
     case cancelled
-    case iCloudUnavailable
-    case noRemoteConfiguration
     case invalidPayload
     case encodeFailed
     case decodeFailed

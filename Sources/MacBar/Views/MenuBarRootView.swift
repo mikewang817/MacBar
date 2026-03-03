@@ -135,16 +135,6 @@ struct MenuBarRootView: View {
 
     private var configurationMenu: some View {
         Menu {
-            Button(store.localized("ui.config.syncToICloud")) {
-                presentFeedback(store.syncConfigurationToICloud())
-            }
-
-            Button(store.localized("ui.config.syncFromICloud")) {
-                presentFeedback(store.syncConfigurationFromICloud())
-            }
-
-            Divider()
-
             Button(store.localized("ui.config.export")) {
                 presentFeedback(store.exportConfiguration())
             }
@@ -153,7 +143,7 @@ struct MenuBarRootView: View {
                 presentFeedback(store.importConfiguration())
             }
         } label: {
-            Label(store.localized("ui.config.menu"), systemImage: "externaldrive.badge.icloud")
+            Label(store.localized("ui.config.menu"), systemImage: "externaldrive")
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
