@@ -15,12 +15,14 @@ MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你
 - 使用人口阈值：内置“使用人口 >500万”语言资源（当前生成 164 个语言包，含方言回退映射）。
 - 资源生成脚本：`scripts/generate_localizations.py` 可重复生成本地化文件。
 - 失败回退：深链失效时自动回退到系统设置主页。
+- 深层跳转：为键盘/声音/网络/通知/隐私与安全性/日期与时间等提供子页直达。
+- 配置管理：支持导出 JSON 配置、导入配置、同步到 iCloud、从 iCloud 拉取配置。
 
 ## 体验设计
 
 - 入口路径短：每个设置项都带有明确描述和单独“打开”按钮。
 - 信息密度高但可读：按类别分组，优先展示收藏。
-- 状态可见：每次打开后底部显示结果（成功/回退/失败）。
+- 结果反馈：深链回退/失败与配置操作会弹窗提示。
 - 国际化结构：文案全部通过 `Localizable.strings` 管理，便于继续扩展翻译。
 
 ## 技术方案
@@ -46,8 +48,10 @@ MacBar/
     ├── MacBar.swift
     ├── Data/SettingsCatalog.swift
     ├── Models/SettingsCategory.swift
+    ├── Models/AppConfiguration.swift
     ├── Models/SettingsDestination.swift
     ├── Resources/*.lproj/Localizable.strings
+    ├── Services/AppConfigurationManager.swift
     ├── Services/LocalizationManager.swift
     ├── Services/SettingsNavigator.swift
     ├── Stores/MacBarStore.swift

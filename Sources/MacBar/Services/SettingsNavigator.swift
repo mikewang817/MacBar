@@ -77,6 +77,38 @@ final class SettingsNavigator {
         )
     }
 
+    func open(quickLink: SettingsQuickLink, in destination: SettingsDestination) -> SettingsOpenResult {
+        if openFirstAvailableURL(quickLink.urlCandidates) {
+            return SettingsOpenResult(
+                status: .success,
+                message: localizationManager.localized(
+                    "status.openedQuickLink",
+                    quickLink.localizedTitle(using: localizationManager),
+                    destination.localizedTitle(using: localizationManager)
+                )
+            )
+        }
+
+        if openFirstAvailableURL(destination.urlCandidates) {
+            return SettingsOpenResult(
+                status: .fallback,
+                message: localizationManager.localized(
+                    "status.openedQuickLinkFallback",
+                    destination.localizedTitle(using: localizationManager),
+                    quickLink.localizedTitle(using: localizationManager)
+                )
+            )
+        }
+
+        return SettingsOpenResult(
+            status: .failure,
+            message: localizationManager.localized(
+                "status.openQuickLinkFailed",
+                quickLink.localizedTitle(using: localizationManager)
+            )
+        )
+    }
+
     func openSystemSettingsHome() -> SettingsOpenResult {
         guard let homeURL = URL(string: "x-apple.systempreferences:") else {
             return SettingsOpenResult(

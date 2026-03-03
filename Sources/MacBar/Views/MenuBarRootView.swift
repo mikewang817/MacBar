@@ -6,6 +6,9 @@ struct MenuBarRootView: View {
     @ObservedObject var localizationManager: LocalizationManager
     let navigator: SettingsNavigator
     @FocusState private var isSearchFieldFocused: Bool
+    @State private var alertTitle: String = ""
+    @State private var alertMessage: String = ""
+    @State private var isFeedbackAlertPresented: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -57,6 +60,11 @@ struct MenuBarRootView: View {
                 isSearchFieldFocused = true
             }
         }
+        .alert(alertTitle, isPresented: $isFeedbackAlertPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
     }
 
     private var header: some View {
@@ -91,6 +99,8 @@ struct MenuBarRootView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
 
+            configurationMenu
+
             languageMenu
 
             Spacer()
@@ -118,6 +128,32 @@ struct MenuBarRootView: View {
             }
         } label: {
             Label(store.localized("ui.language.menu"), systemImage: "globe")
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+    }
+
+    private var configurationMenu: some View {
+        Menu {
+            Button(store.localized("ui.config.syncToICloud")) {
+                presentFeedback(store.syncConfigurationToICloud())
+            }
+
+            Button(store.localized("ui.config.syncFromICloud")) {
+                presentFeedback(store.syncConfigurationFromICloud())
+            }
+
+            Divider()
+
+            Button(store.localized("ui.config.export")) {
+                presentFeedback(store.exportConfiguration())
+            }
+
+            Button(store.localized("ui.config.import")) {
+                presentFeedback(store.importConfiguration())
+            }
+        } label: {
+            Label(store.localized("ui.config.menu"), systemImage: "externaldrive.badge.icloud")
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
@@ -152,6 +188,10 @@ struct MenuBarRootView: View {
 
             Spacer(minLength: 8)
 
+            if !destination.quickLinks.isEmpty {
+                quickLinksMenu(for: destination)
+            }
+
             Button {
                 store.toggleFavorite(destination.id)
             } label: {
@@ -179,7 +219,52 @@ struct MenuBarRootView: View {
     }
 
     private func open(_ destination: SettingsDestination) {
-        _ = navigator.open(destination)
+        let result = navigator.open(destination)
+        presentOpenResultIfNeeded(result)
+    }
+
+    private func open(_ quickLink: SettingsQuickLink, in destination: SettingsDestination) {
+        let result = navigator.open(quickLink: quickLink, in: destination)
+        presentOpenResultIfNeeded(result)
+    }
+
+    private func quickLinksMenu(for destination: SettingsDestination) -> some View {
+        Menu {
+            ForEach(destination.quickLinks) { quickLink in
+                Button(quickLink.localizedTitle(using: localizationManager)) {
+                    open(quickLink, in: destination)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.body)
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+        .help(store.localized("ui.help.quickLinks"))
+    }
+
+    private func presentFeedback(_ feedback: StoreFeedback?) {
+        guard let feedback else {
+            return
+        }
+
+        alertTitle = feedback.title
+        alertMessage = feedback.message
+        isFeedbackAlertPresented = true
+    }
+
+    private func presentOpenResultIfNeeded(_ result: SettingsOpenResult) {
+        guard result.status != .success else {
+            return
+        }
+
+        presentFeedback(
+            StoreFeedback(
+                title: store.localized("feedback.opening.title"),
+                message: result.message
+            )
+        )
     }
 
     private func languageLabel(for option: LanguageOption) -> String {

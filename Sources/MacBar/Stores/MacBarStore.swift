@@ -1,6 +1,11 @@
 import Combine
 import Foundation
 
+struct StoreFeedback {
+    let title: String
+    let message: String
+}
+
 @MainActor
 final class MacBarStore: ObservableObject {
     struct CategorySection: Identifiable {
@@ -17,6 +22,8 @@ final class MacBarStore: ObservableObject {
     private let defaults: UserDefaults
     private let inputDeviceMonitor: InputDeviceMonitor
     private let localizationManager: LocalizationManager
+    private let configurationManager: AppConfigurationManager
+    private var isApplyingRemoteConfiguration = false
     private var cancellables: Set<AnyCancellable> = []
 
     private enum Keys {
@@ -26,12 +33,14 @@ final class MacBarStore: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         inputDeviceMonitor: InputDeviceMonitor = InputDeviceMonitor(),
-        localizationManager: LocalizationManager = LocalizationManager()
+        localizationManager: LocalizationManager = LocalizationManager(),
+        configurationManager: AppConfigurationManager = AppConfigurationManager()
     ) {
         self.defaults = defaults
         self.favoriteIDs = Set(defaults.stringArray(forKey: Keys.favorites) ?? [])
         self.inputDeviceMonitor = inputDeviceMonitor
         self.localizationManager = localizationManager
+        self.configurationManager = configurationManager
         self.hasMouseDevice = inputDeviceMonitor.isMouseConnected
 
         inputDeviceMonitor.$isMouseConnected
@@ -47,6 +56,16 @@ final class MacBarStore: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(
+            for: AppConfigurationManager.didReceiveRemoteConfigurationNotification,
+            object: configurationManager
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _ in
+            self?.applyRemoteConfigurationSilently()
+        }
+        .store(in: &cancellables)
     }
 
     var isSearching: Bool {
@@ -143,6 +162,51 @@ final class MacBarStore: ObservableObject {
         saveFavorites()
     }
 
+    func exportConfiguration() -> StoreFeedback? {
+        do {
+            let url = try configurationManager.exportConfiguration(currentConfiguration())
+            return makeFeedback(
+                messageKey: "feedback.configuration.exported",
+                arguments: [url.path]
+            )
+        } catch AppConfigurationError.cancelled {
+            return nil
+        } catch {
+            return feedbackForConfigurationError(error)
+        }
+    }
+
+    func importConfiguration() -> StoreFeedback? {
+        do {
+            let importedConfiguration = try configurationManager.importConfiguration()
+            apply(configuration: importedConfiguration)
+            return makeFeedback(messageKey: "feedback.configuration.imported")
+        } catch AppConfigurationError.cancelled {
+            return nil
+        } catch {
+            return feedbackForConfigurationError(error)
+        }
+    }
+
+    func syncConfigurationToICloud() -> StoreFeedback? {
+        do {
+            try configurationManager.syncToICloud(currentConfiguration())
+            return makeFeedback(messageKey: "feedback.configuration.syncedToICloud")
+        } catch {
+            return feedbackForConfigurationError(error)
+        }
+    }
+
+    func syncConfigurationFromICloud() -> StoreFeedback? {
+        do {
+            let remoteConfiguration = try configurationManager.syncFromICloud()
+            apply(configuration: remoteConfiguration)
+            return makeFeedback(messageKey: "feedback.configuration.syncedFromICloud")
+        } catch {
+            return feedbackForConfigurationError(error)
+        }
+    }
+
     private func orderedDestinations(fromIDs ids: [String]) -> [SettingsDestination] {
         var ordered: [SettingsDestination] = []
 
@@ -163,5 +227,67 @@ final class MacBarStore: ObservableObject {
 
     private func saveFavorites() {
         defaults.set(Array(favoriteIDs).sorted(), forKey: Keys.favorites)
+    }
+
+    private func currentConfiguration() -> AppConfiguration {
+        configurationManager.makeConfiguration(
+            favoriteIDs: favoriteIDs,
+            selectedLanguageCode: localizationManager.selectedLanguageCode
+        )
+    }
+
+    private func apply(configuration: AppConfiguration) {
+        let validDestinationIDs = Set(SettingsCatalog.byID.keys)
+        favoriteIDs = Set(configuration.favoriteIDs.filter { validDestinationIDs.contains($0) })
+        saveFavorites()
+        localizationManager.selectLanguage(code: configuration.selectedLanguageCode)
+    }
+
+    private func applyRemoteConfigurationSilently() {
+        guard !isApplyingRemoteConfiguration else {
+            return
+        }
+
+        do {
+            isApplyingRemoteConfiguration = true
+            defer {
+                isApplyingRemoteConfiguration = false
+            }
+
+            let remoteConfiguration = try configurationManager.syncFromICloud()
+            apply(configuration: remoteConfiguration)
+        } catch {
+            // Ignore remote sync errors in silent path.
+        }
+    }
+
+    private func makeFeedback(messageKey: String, arguments: [CVarArg] = []) -> StoreFeedback {
+        StoreFeedback(
+            title: localized("feedback.configuration.title"),
+            message: arguments.isEmpty
+                ? localized(messageKey)
+                : localizationManager.localized(messageKey, arguments: arguments)
+        )
+    }
+
+    private func feedbackForConfigurationError(_ error: Error) -> StoreFeedback {
+        let messageKey: String
+
+        switch error {
+        case AppConfigurationError.iCloudUnavailable:
+            messageKey = "feedback.configuration.error.iCloudUnavailable"
+        case AppConfigurationError.noRemoteConfiguration:
+            messageKey = "feedback.configuration.error.noRemoteConfiguration"
+        case AppConfigurationError.decodeFailed, AppConfigurationError.invalidPayload:
+            messageKey = "feedback.configuration.error.invalidFile"
+        case AppConfigurationError.writeFailed:
+            messageKey = "feedback.configuration.error.writeFailed"
+        case AppConfigurationError.readFailed:
+            messageKey = "feedback.configuration.error.readFailed"
+        default:
+            messageKey = "feedback.configuration.error.generic"
+        }
+
+        return makeFeedback(messageKey: messageKey)
     }
 }
