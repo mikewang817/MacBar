@@ -5,17 +5,20 @@ struct MenuBarRootView: View {
     private enum SearchField: Hashable {
         case settings
         case clipboard
+        case todo
     }
 
     @ObservedObject var store: MacBarStore
     @ObservedObject var localizationManager: LocalizationManager
     let navigator: SettingsNavigator
-    @FocusState private var focusedField: SearchField?
+    @State private var focusedField: SearchField?
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
     @State private var isFeedbackAlertPresented: Bool = false
     @State private var selectedSettingsDestinationID: String?
     @State private var selectedClipboardItemID: UUID?
+    @State private var selectedTodoItemID: UUID?
+    @State private var isTodoInputEditing: Bool = false
     @State private var keyDownMonitor: Any?
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
@@ -30,6 +33,8 @@ struct MenuBarRootView: View {
             return selectedClipboardItem != nil
         case .settings:
             return selectedSettingsDestination != nil
+        case .todo:
+            return selectedTodoItem != nil
         }
     }
 
@@ -43,6 +48,11 @@ struct MenuBarRootView: View {
         return settingsNavigationItems.first { $0.id == selectedSettingsDestinationID }
     }
 
+    private var selectedTodoItem: TodoItem? {
+        guard let selectedTodoItemID else { return nil }
+        return todoNavigationItems.first { $0.id == selectedTodoItemID }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // Preview pane (left side, slides in)
@@ -52,6 +62,8 @@ struct MenuBarRootView: View {
                         clipboardPreviewPane(item: item)
                     } else if store.activePanel == .settings, let dest = selectedSettingsDestination {
                         settingsPreviewPane(destination: dest)
+                    } else if store.activePanel == .todo, let item = selectedTodoItem {
+                        todoPreviewPane(item: item)
                     }
                 }
                 .frame(width: previewWidth)
@@ -84,22 +96,35 @@ struct MenuBarRootView: View {
         .animation(.easeInOut(duration: 0.2), value: showPreview)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                focusedField = store.activePanel == .settings ? .settings : .clipboard
+                switch store.activePanel {
+                case .settings: focusedField = .settings
+                case .clipboard: focusedField = .clipboard
+                case .todo: focusedField = .todo
+                }
             }
 
             syncSelectedSettingsDestination()
             syncSelectedClipboardItem()
+            syncSelectedTodoItem()
             installKeyMonitorIfNeeded()
         }
         .onChange(of: store.activePanel) { newPanel in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                focusedField = newPanel == .settings ? .settings : .clipboard
+                switch newPanel {
+                case .settings: focusedField = .settings
+                case .clipboard: focusedField = .clipboard
+                case .todo: focusedField = .todo
+                }
             }
 
-            if newPanel == .settings {
-                syncSelectedSettingsDestination()
-            } else {
-                syncSelectedClipboardItem()
+            if newPanel != .todo {
+                isTodoInputEditing = false
+            }
+
+            switch newPanel {
+            case .settings: syncSelectedSettingsDestination()
+            case .clipboard: syncSelectedClipboardItem()
+            case .todo: syncSelectedTodoItem()
             }
         }
         .onChange(of: settingsNavigationIDs) { _ in
@@ -107,6 +132,9 @@ struct MenuBarRootView: View {
         }
         .onChange(of: clipboardNavigationIDs) { _ in
             syncSelectedClipboardItem()
+        }
+        .onChange(of: todoNavigationIDs) { _ in
+            syncSelectedTodoItem()
         }
         .onDisappear {
             focusedField = nil
@@ -116,10 +144,15 @@ struct MenuBarRootView: View {
             handleMoveCommand(direction)
         }
         .onSubmit {
-            if store.activePanel == .settings {
-                openSelectedSetting()
-            } else {
-                copySelectedClipboardItem()
+            switch store.activePanel {
+            case .settings: openSelectedSetting()
+            case .clipboard: copySelectedClipboardItem()
+            case .todo:
+                if isTodoInputEditing {
+                    submitTodoInput()
+                } else {
+                    toggleSelectedTodoCompleted()
+                }
             }
         }
         .alert(alertTitle, isPresented: $isFeedbackAlertPresented) {
@@ -182,6 +215,189 @@ struct MenuBarRootView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Inline todo preview
+
+    private func todoPreviewPane(item: TodoItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Priority badge
+                    if let priority = item.priority {
+                        HStack(spacing: 4) {
+                            Image(systemName: todoPriorityIcon(priority))
+                                .foregroundStyle(todoPriorityColor(priority))
+                            Text(store.localized("ui.todo.priority.\(priority.rawValue)"))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(todoPriorityColor(priority))
+                        }
+                    }
+
+                    // Title
+                    Text(item.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .strikethrough(item.isCompleted)
+
+                    // Notes
+                    if let notes = item.notes, !notes.isEmpty {
+                        Text(notes)
+                            .font(.system(size: 12))
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Divider()
+
+                    // Inline editing
+                    VStack(alignment: .leading, spacing: 8) {
+                        // Priority picker
+                        HStack {
+                            Text(store.localized("ui.todo.preview.priority"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Menu {
+                                Button(store.localized("ui.todo.preview.noPriority")) {
+                                    store.updateTodoItem(item.id, priority: .some(nil))
+                                }
+                                ForEach(TodoPriority.allCases, id: \.self) { p in
+                                    Button {
+                                        store.updateTodoItem(item.id, priority: .some(p))
+                                    } label: {
+                                        Label(
+                                            store.localized("ui.todo.priority.\(p.rawValue)"),
+                                            systemImage: todoPriorityIcon(p)
+                                        )
+                                    }
+                                }
+                            } label: {
+                                if let p = item.priority {
+                                    Label(
+                                        store.localized("ui.todo.priority.\(p.rawValue)"),
+                                        systemImage: todoPriorityIcon(p)
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(todoPriorityColor(p))
+                                } else {
+                                    Text(store.localized("ui.todo.preview.noPriority"))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                        }
+
+                        // Due date picker
+                        HStack {
+                            Text(store.localized("ui.todo.preview.dueDate.label"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if item.dueDate != nil {
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { item.dueDate ?? Date() },
+                                        set: { store.updateTodoItem(item.id, dueDate: .some($0)) }
+                                    ),
+                                    displayedComponents: [.date]
+                                )
+                                .labelsHidden()
+                                .controlSize(.small)
+
+                                Button {
+                                    store.updateTodoItem(item.id, dueDate: .some(nil))
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Button(store.localized("ui.todo.preview.addDueDate")) {
+                                    store.updateTodoItem(item.id, dueDate: .some(Date()))
+                                }
+                                .font(.caption)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        Divider()
+
+                        // Notes editor
+                        Text(store.localized("ui.todo.preview.notes"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextEditor(text: Binding(
+                            get: { item.notes ?? "" },
+                            set: { store.updateTodoItem(item.id, notes: $0.isEmpty ? nil : $0) }
+                        ))
+                        .font(.system(size: 11))
+                        .frame(minHeight: 60)
+                        .scrollContentBackground(.hidden)
+                        .padding(4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(.quaternary.opacity(0.3))
+                        )
+                    }
+                }
+                .padding(12)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let dueLabel = store.todoDueDateLabel(for: item) {
+                    Text(store.localized("ui.todo.preview.dueDate", dueLabel))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(store.todoCreatedAtLabel(for: item))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(store.localized(item.isCompleted ? "ui.todo.status.completed" : "ui.todo.status.pending"))
+                    .font(.caption)
+                    .foregroundStyle(item.isCompleted ? .green : .orange)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Enter → \(store.localized("ui.todo.help.toggleComplete"))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Delete → \(store.localized("ui.todo.help.delete"))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func todoPriorityIcon(_ priority: TodoPriority) -> String {
+        switch priority {
+        case .high: return "exclamationmark.triangle.fill"
+        case .medium: return "flag.fill"
+        case .low: return "arrow.down.circle"
+        }
+    }
+
+    private func todoPriorityColor(_ priority: TodoPriority) -> Color {
+        switch priority {
+        case .high: return .red
+        case .medium: return .orange
+        case .low: return .blue
         }
     }
 
@@ -727,7 +943,10 @@ struct MenuBarRootView: View {
                 .frame(minWidth: 180, maxWidth: .infinity)
 
             Button {
-                store.activePanel = store.activePanel == .settings ? .clipboard : .settings
+                let panels = AppPanel.allCases
+                if let idx = panels.firstIndex(of: store.activePanel) {
+                    store.activePanel = panels[(idx + 1) % panels.count]
+                }
             } label: {
                 Image(systemName: "switch.2")
                     .font(.title2)
@@ -751,6 +970,10 @@ struct MenuBarRootView: View {
             panelButton(
                 title: store.localized("ui.panel.clipboard"),
                 panel: .clipboard
+            )
+            panelButton(
+                title: store.localized("ui.panel.todo"),
+                panel: .todo
             )
 
             Spacer()
@@ -783,7 +1006,7 @@ struct MenuBarRootView: View {
             CommandAwareSearchField(
                 text: $store.searchText,
                 placeholder: store.localized("ui.search.placeholder"),
-                isFocused: focusedField == .settings,
+                isFocused: true,
                 onFocus: { focusedField = .settings },
                 onMoveUp: {
                     moveSettingsSelection(delta: -1)
@@ -799,7 +1022,7 @@ struct MenuBarRootView: View {
             CommandAwareSearchField(
                 text: $store.clipboardSearchText,
                 placeholder: store.localized("ui.clipboard.search.placeholder"),
-                isFocused: focusedField == .clipboard,
+                isFocused: true,
                 onFocus: { focusedField = .clipboard },
                 onMoveUp: {
                     moveClipboardSelection(delta: -1)
@@ -809,6 +1032,22 @@ struct MenuBarRootView: View {
                 },
                 onSubmit: {
                     copySelectedClipboardItem()
+                }
+            )
+        case .todo:
+            CommandAwareSearchField(
+                text: $store.todoSearchText,
+                placeholder: store.localized("ui.todo.search.placeholder"),
+                isFocused: focusedField == .todo,
+                onFocus: { focusedField = .todo },
+                onMoveUp: {
+                    moveTodoSelection(delta: -1)
+                },
+                onMoveDown: {
+                    moveTodoSelection(delta: 1)
+                },
+                onSubmit: {
+                    toggleSelectedTodoCompleted()
                 }
             )
         }
@@ -821,6 +1060,8 @@ struct MenuBarRootView: View {
             settingsPanelBody
         case .clipboard:
             clipboardPanelBody
+        case .todo:
+            todoPanelBody
         }
     }
 
@@ -1061,6 +1302,184 @@ struct MenuBarRootView: View {
         }
     }
 
+    // MARK: - Todo Panel
+
+    private var todoNavigationItems: [TodoItem] {
+        store.pinnedTodoItems + store.recentTodoItems
+    }
+
+    private var todoNavigationIDs: [UUID] {
+        todoNavigationItems.map(\.id)
+    }
+
+    @ViewBuilder
+    private var todoPanelBody: some View {
+        let pinned = store.pinnedTodoItems
+        let recent = store.recentTodoItems
+
+        VStack(alignment: .leading, spacing: 14) {
+            todoInputField
+
+            if pinned.isEmpty, recent.isEmpty {
+                todoEmptyState
+            } else {
+                if !pinned.isEmpty {
+                    todoSection(
+                        title: store.localized("ui.todo.section.pinned"),
+                        items: pinned
+                    )
+                }
+
+                if !recent.isEmpty {
+                    todoSection(
+                        title: store.localized("ui.todo.section.recent"),
+                        items: recent
+                    )
+                }
+            }
+        }
+    }
+
+    private var todoInputField: some View {
+        HStack(spacing: 8) {
+            TextField(
+                store.localized("ui.todo.input.placeholder"),
+                text: $store.todoInputText,
+                onEditingChanged: { isEditing in
+                    isTodoInputEditing = isEditing
+                    if isEditing {
+                        focusedField = nil
+                    }
+                },
+                onCommit: {
+                    submitTodoInput()
+                }
+            )
+            .textFieldStyle(.roundedBorder)
+
+            Button {
+                submitTodoInput()
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
+            }
+            .buttonStyle(.plain)
+            .disabled(store.todoInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .submitScope()
+    }
+
+    private func submitTodoInput() {
+        store.addTodoItem(title: store.todoInputText)
+        store.todoInputText = ""
+        syncSelectedTodoItem()
+    }
+
+    private var todoEmptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "checklist")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text(store.localized("ui.todo.empty.title"))
+                .font(.subheadline.weight(.semibold))
+            Text(store.localized("ui.todo.empty.hint"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+    }
+
+    private func todoSection(title: String, items: [TodoItem]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+
+            ForEach(items) { item in
+                todoRow(item, isSelected: selectedTodoItemID == item.id)
+                    .id(item.id)
+            }
+        }
+    }
+
+    private func todoRow(_ item: TodoItem, isSelected: Bool) -> some View {
+        let isPinned = store.isTodoItemPinned(item.id)
+
+        return HStack(spacing: 10) {
+            Button {
+                store.toggleTodoItemCompleted(item.id)
+            } label: {
+                Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .frame(width: 22)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(item.isCompleted ? .green : .primary)
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.previewTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .strikethrough(item.isCompleted)
+                    .foregroundStyle(item.isCompleted ? .secondary : .primary)
+
+                if let priority = item.priority {
+                    Text(store.localized("ui.todo.priority.\(priority.rawValue)"))
+                        .font(.caption2)
+                        .foregroundStyle(todoPriorityColor(priority))
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if let dueLabel = store.todoDueDateLabel(for: item) {
+                Text(dueLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                store.toggleTodoItemPinned(item.id)
+            } label: {
+                Image(systemName: isPinned ? "pin.fill" : "pin")
+                    .foregroundStyle(isPinned ? .orange : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(
+                isPinned
+                    ? store.localized("ui.todo.help.unpin")
+                    : store.localized("ui.todo.help.pin")
+            )
+
+            Button {
+                store.toggleTodoItemCompleted(item.id)
+            } label: {
+                Image(systemName: item.isCompleted ? "arrow.uturn.backward" : "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    isSelected
+                        ? AnyShapeStyle(Color.accentColor.opacity(0.32))
+                        : AnyShapeStyle(.quaternary.opacity(0.25))
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? Color.accentColor.opacity(0.95) : .clear, lineWidth: 1.2)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedTodoItemID = item.id
+        }
+    }
+
     private func installKeyMonitorIfNeeded() {
         guard keyDownMonitor == nil else {
             return
@@ -1083,10 +1502,100 @@ struct MenuBarRootView: View {
         }
     }
 
+    private var activePanelTextIsEmpty: Bool {
+        switch store.activePanel {
+        case .settings:
+            return !hasMeaningfulText(store.searchText)
+        case .clipboard:
+            return !hasMeaningfulText(store.clipboardSearchText)
+        case .todo:
+            return !hasMeaningfulText(store.todoSearchText) && !hasMeaningfulText(store.todoInputText)
+        }
+    }
+
+    private func hasMeaningfulText(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func isEditingTextInput(for event: NSEvent) -> Bool {
+        event.window?.firstResponder is NSTextView
+    }
+
+    private func isAnyTextInputEditing() -> Bool {
+        guard let firstResponder = NSApp.keyWindow?.firstResponder else {
+            return false
+        }
+        return firstResponder is NSTextView
+            || firstResponder is NSSearchField
+            || firstResponder is NSTextField
+    }
+
+    private func handleDeleteShortcutInActivePanel() -> Bool {
+        switch store.activePanel {
+        case .clipboard:
+            guard !hasMeaningfulText(store.clipboardSearchText) else {
+                return false
+            }
+            deleteSelectedClipboardItem()
+            return true
+        case .todo:
+            guard !isTodoInputEditing,
+                  !hasMeaningfulText(store.todoSearchText),
+                  !hasMeaningfulText(store.todoInputText) else {
+                return false
+            }
+            deleteSelectedTodoItem()
+            return true
+        case .settings:
+            return false
+        }
+    }
+
+    private var isActivePanelSearchFieldFocused: Bool {
+        switch store.activePanel {
+        case .settings:
+            return focusedField == .settings
+        case .clipboard:
+            return focusedField == .clipboard
+        case .todo:
+            return focusedField == .todo && !isTodoInputEditing
+        }
+    }
+
+    private var isActivePanelSearchTextEmpty: Bool {
+        switch store.activePanel {
+        case .settings:
+            return !hasMeaningfulText(store.searchText)
+        case .clipboard:
+            return !hasMeaningfulText(store.clipboardSearchText)
+        case .todo:
+            return !hasMeaningfulText(store.todoSearchText)
+        }
+    }
+
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let isLeftArrow = event.keyCode == 123
+        let isRightArrow = event.keyCode == 124
+        let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
 
-        if store.activePanel == .clipboard, flags == [.command],
+        if flags.isEmpty, (isLeftArrow || isRightArrow),
+           isActivePanelSearchFieldFocused, isActivePanelSearchTextEmpty {
+            switchPanel(delta: isLeftArrow ? -1 : 1)
+            return true
+        }
+
+        if flags.isEmpty, isDeleteKey, handleDeleteShortcutInActivePanel() {
+            return true
+        }
+
+        if isAnyTextInputEditing() {
+            return false
+        }
+
+        let isEditingTextInput = isEditingTextInput(for: event)
+
+        if !isEditingTextInput, store.activePanel == .clipboard, flags == [.command],
            let chars = event.charactersIgnoringModifiers?.lowercased(),
            let first = chars.first {
             // CMD+1-9 for recent (unpinned) items
@@ -1107,40 +1616,46 @@ struct MenuBarRootView: View {
             return false
         }
 
+        if isEditingTextInput {
+            return false
+        }
+
         switch event.keyCode {
         case 123: // left
-            switchPanel(delta: -1)
-            return true
+            if activePanelTextIsEmpty {
+                switchPanel(delta: -1)
+                return true
+            }
+            return false // let text field handle cursor movement
         case 124: // right
-            switchPanel(delta: 1)
-            return true
+            if activePanelTextIsEmpty {
+                switchPanel(delta: 1)
+                return true
+            }
+            return false // let text field handle cursor movement
         case 125: // down
-            if store.activePanel == .settings {
-                moveSettingsSelection(delta: 1)
-            } else {
-                moveClipboardSelection(delta: 1)
+            switch store.activePanel {
+            case .settings: moveSettingsSelection(delta: 1)
+            case .clipboard: moveClipboardSelection(delta: 1)
+            case .todo: moveTodoSelection(delta: 1)
             }
             return true
         case 126: // up
-            if store.activePanel == .settings {
-                moveSettingsSelection(delta: -1)
-            } else {
-                moveClipboardSelection(delta: -1)
+            switch store.activePanel {
+            case .settings: moveSettingsSelection(delta: -1)
+            case .clipboard: moveClipboardSelection(delta: -1)
+            case .todo: moveTodoSelection(delta: -1)
             }
             return true
         case 36, 76: // return / keypad enter
-            if store.activePanel == .settings {
-                openSelectedSetting()
-            } else {
-                copySelectedClipboardItem()
+            switch store.activePanel {
+            case .settings: openSelectedSetting()
+            case .clipboard: copySelectedClipboardItem()
+            case .todo: return false // let TextField onSubmit handle it
             }
             return true
         case 51, 117: // backspace / forward delete
-            if store.activePanel == .clipboard {
-                deleteSelectedClipboardItem()
-                return true
-            }
-            return false
+            return handleDeleteShortcutInActivePanel()
         default:
             return false
         }
@@ -1153,16 +1668,16 @@ struct MenuBarRootView: View {
         case .right:
             switchPanel(delta: 1)
         case .up:
-            if store.activePanel == .settings {
-                moveSettingsSelection(delta: -1)
-            } else {
-                moveClipboardSelection(delta: -1)
+            switch store.activePanel {
+            case .settings: moveSettingsSelection(delta: -1)
+            case .clipboard: moveClipboardSelection(delta: -1)
+            case .todo: moveTodoSelection(delta: -1)
             }
         case .down:
-            if store.activePanel == .settings {
-                moveSettingsSelection(delta: 1)
-            } else {
-                moveClipboardSelection(delta: 1)
+            switch store.activePanel {
+            case .settings: moveSettingsSelection(delta: 1)
+            case .clipboard: moveClipboardSelection(delta: 1)
+            case .todo: moveTodoSelection(delta: 1)
             }
         @unknown default:
             break
@@ -1313,6 +1828,67 @@ struct MenuBarRootView: View {
         selectedClipboardItemID = items[0].id
     }
 
+    // MARK: - Todo Navigation
+
+    private func moveTodoSelection(delta: Int) {
+        let items = todoNavigationItems
+        guard !items.isEmpty else {
+            selectedTodoItemID = nil
+            return
+        }
+
+        let currentIndex = selectedTodoItemID
+            .flatMap { id in items.firstIndex(where: { $0.id == id }) } ?? 0
+        let nextIndex = max(0, min(items.count - 1, currentIndex + delta))
+        let newID = items[nextIndex].id
+        selectedTodoItemID = newID
+        withAnimation {
+            scrollProxy?.scrollTo(newID, anchor: .center)
+        }
+    }
+
+    private func toggleSelectedTodoCompleted() {
+        let items = todoNavigationItems
+        guard !items.isEmpty else { return }
+
+        let selected = selectedTodoItemID
+            .flatMap { id in items.first(where: { $0.id == id }) } ?? items[0]
+        selectedTodoItemID = selected.id
+        store.toggleTodoItemCompleted(selected.id)
+    }
+
+    private func deleteSelectedTodoItem() {
+        let items = todoNavigationItems
+        guard !items.isEmpty,
+              let selectedID = selectedTodoItemID,
+              let currentIndex = items.firstIndex(where: { $0.id == selectedID })
+        else { return }
+
+        store.deleteTodoItem(selectedID)
+
+        let updatedItems = todoNavigationItems
+        if updatedItems.isEmpty {
+            selectedTodoItemID = nil
+        } else {
+            let nextIndex = min(currentIndex, updatedItems.count - 1)
+            selectedTodoItemID = updatedItems[nextIndex].id
+        }
+    }
+
+    private func syncSelectedTodoItem() {
+        let items = todoNavigationItems
+        guard !items.isEmpty else {
+            selectedTodoItemID = nil
+            return
+        }
+
+        if let selectedTodoItemID,
+           items.contains(where: { $0.id == selectedTodoItemID }) {
+            return
+        }
+
+        selectedTodoItemID = items[0].id
+    }
 
     private var footer: some View {
         HStack {
@@ -1556,22 +2132,31 @@ private struct CommandAwareSearchField: NSViewRepresentable {
             nsView.placeholderString = placeholder
         }
 
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-
         guard let window = nsView.window else {
+            if nsView.stringValue != text {
+                nsView.stringValue = text
+            }
             return
         }
 
+        let firstResponder = window.firstResponder
+        let isFieldResponder = firstResponder === nsView
+        let isEditorResponder = firstResponder === nsView.currentEditor()
+        let isEditing = isFieldResponder || isEditorResponder
+        let isOtherTextInputFocused = !isEditing && (
+            firstResponder is NSTextView
+            || firstResponder is NSSearchField
+            || firstResponder is NSTextField
+        )
+
+        if !isEditing, nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+
         if isFocused {
-            if window.firstResponder !== nsView.currentEditor() {
+            if !isEditing && !isOtherTextInputFocused {
                 window.makeFirstResponder(nsView)
             }
-        } else if window.firstResponder === nsView.currentEditor() {
-            window.makeFirstResponder(nil)
         }
     }
 }
-
-
