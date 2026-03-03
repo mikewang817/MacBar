@@ -7,10 +7,6 @@ private func hidMouseMatchingDictionaries() -> [[String: Any]] {
         [
             kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
             kIOHIDDeviceUsageKey as String: kHIDUsage_GD_Mouse
-        ],
-        [
-            kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
-            kIOHIDDeviceUsageKey as String: kHIDUsage_GD_Pointer
         ]
     ]
 }
@@ -111,6 +107,82 @@ final class InputDeviceMonitor: ObservableObject, InputDeviceDetecting {
         }
 
         let devices = rawDevices as NSSet
-        return devices.count
+        var count = 0
+
+        for case let device as IOHIDDevice in devices {
+            if isExternalMouseDevice(device) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
+    private static func isExternalMouseDevice(_ device: IOHIDDevice) -> Bool {
+        guard let usagePage = intProperty(device, key: kIOHIDPrimaryUsagePageKey as CFString),
+              usagePage == Int(kHIDPage_GenericDesktop),
+              let usage = intProperty(device, key: kIOHIDPrimaryUsageKey as CFString),
+              usage == Int(kHIDUsage_GD_Mouse) else {
+            return false
+        }
+
+        if let isBuiltIn = boolProperty(device, key: kIOHIDBuiltInKey as CFString), isBuiltIn {
+            return false
+        }
+
+        if let transport = stringProperty(device, key: kIOHIDTransportKey as CFString)?
+            .uppercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           ["FIFO", "SPI", "I2C"].contains(transport) {
+            return false
+        }
+
+        if let productName = stringProperty(device, key: kIOHIDProductKey as CFString)?
+            .lowercased(),
+           productName.contains("trackpad") {
+            return false
+        }
+
+        return true
+    }
+
+    private static func intProperty(_ device: IOHIDDevice, key: CFString) -> Int? {
+        guard let value = IOHIDDeviceGetProperty(device, key) else {
+            return nil
+        }
+
+        if CFGetTypeID(value) == CFNumberGetTypeID() {
+            return (value as? NSNumber)?.intValue
+        }
+
+        return nil
+    }
+
+    private static func boolProperty(_ device: IOHIDDevice, key: CFString) -> Bool? {
+        guard let value = IOHIDDeviceGetProperty(device, key) else {
+            return nil
+        }
+
+        if CFGetTypeID(value) == CFBooleanGetTypeID() {
+            return (value as! CFBoolean) == kCFBooleanTrue
+        }
+
+        if CFGetTypeID(value) == CFNumberGetTypeID() {
+            return (value as? NSNumber)?.boolValue
+        }
+
+        return nil
+    }
+
+    private static func stringProperty(_ device: IOHIDDevice, key: CFString) -> String? {
+        guard let value = IOHIDDeviceGetProperty(device, key) else {
+            return nil
+        }
+
+        if CFGetTypeID(value) == CFStringGetTypeID() {
+            return value as? String
+        }
+
+        return nil
     }
 }
