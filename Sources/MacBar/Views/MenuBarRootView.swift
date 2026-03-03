@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarRootView: View {
     @ObservedObject var store: MacBarStore
+    @ObservedObject var localizationManager: LocalizationManager
     let navigator: SettingsNavigator
     @FocusState private var isSearchFieldFocused: Bool
 
@@ -15,7 +16,10 @@ struct MenuBarRootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if !store.isSearching, !store.favoriteDestinations.isEmpty {
-                        destinationSection(title: "收藏", items: store.favoriteDestinations)
+                        destinationSection(
+                            title: store.localized("ui.section.favorites"),
+                            items: store.favoriteDestinations
+                        )
                     }
 
                     if store.groupedSearchResults.isEmpty {
@@ -23,9 +27,9 @@ struct MenuBarRootView: View {
                             Image(systemName: "magnifyingglass")
                                 .font(.title3)
                                 .foregroundStyle(.secondary)
-                            Text("没有匹配结果")
+                            Text(store.localized("ui.empty.title"))
                                 .font(.subheadline.weight(.semibold))
-                            Text("试试关键字：触控板、Wi-Fi、隐私")
+                            Text(store.localized("ui.empty.hint"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -33,7 +37,10 @@ struct MenuBarRootView: View {
                         .padding(.vertical, 24)
                     } else {
                         ForEach(store.groupedSearchResults) { section in
-                            destinationSection(title: section.category.title, items: section.items)
+                            destinationSection(
+                                title: store.localizedTitle(for: section.category),
+                                items: section.items
+                            )
                         }
                     }
                 }
@@ -42,13 +49,6 @@ struct MenuBarRootView: View {
 
             Divider()
             footer
-
-            if !store.statusMessage.isEmpty {
-                Text(store.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(statusColor)
-                    .lineLimit(2)
-            }
         }
         .padding(14)
         .frame(minWidth: 420, idealWidth: 440, maxWidth: 460, minHeight: 560, idealHeight: 620)
@@ -64,7 +64,7 @@ struct MenuBarRootView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("MacBar")
                     .font(.title3.weight(.bold))
-                Text("快速进入 macOS 常用设置")
+                Text(store.localized("app.subtitle"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -78,23 +78,24 @@ struct MenuBarRootView: View {
     }
 
     private var searchBar: some View {
-        TextField("搜索设置项（例如：触控板 / Wi-Fi / 隐私）", text: $store.searchText)
+        TextField(store.localized("ui.search.placeholder"), text: $store.searchText)
             .textFieldStyle(.roundedBorder)
             .focused($isSearchFieldFocused)
     }
 
     private var footer: some View {
         HStack {
-            Button("系统设置主页") {
-                let result = navigator.openSystemSettingsHome()
-                store.setStatus(result.message)
+            Button(store.localized("ui.button.systemSettingsHome")) {
+                _ = navigator.openSystemSettingsHome()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
 
+            languageMenu
+
             Spacer()
 
-            Button("退出 MacBar") {
+            Button(store.localized("ui.button.quit")) {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(.borderless)
@@ -102,16 +103,24 @@ struct MenuBarRootView: View {
         }
     }
 
-    private var statusColor: Color {
-        if store.statusMessage.contains("失败") || store.statusMessage.contains("无法") {
-            return .red
+    private var languageMenu: some View {
+        Menu {
+            ForEach(localizationManager.languageOptions) { option in
+                Button {
+                    localizationManager.selectLanguage(code: option.code)
+                } label: {
+                    if option.code == localizationManager.selectedLanguageCode {
+                        Label(languageLabel(for: option), systemImage: "checkmark")
+                    } else {
+                        Text(languageLabel(for: option))
+                    }
+                }
+            }
+        } label: {
+            Label(store.localized("ui.language.menu"), systemImage: "globe")
         }
-
-        if store.statusMessage.contains("手动") || store.statusMessage.contains("未检测到") {
-            return .orange
-        }
-
-        return .secondary
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
     }
 
     private func destinationSection(title: String, items: [SettingsDestination]) -> some View {
@@ -133,9 +142,9 @@ struct MenuBarRootView: View {
                 .foregroundStyle(.primary)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(destination.title)
+                Text(store.localizedTitle(for: destination))
                     .font(.subheadline.weight(.semibold))
-                Text(destination.subtitle)
+                Text(store.localizedSubtitle(for: destination))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -150,9 +159,13 @@ struct MenuBarRootView: View {
                     .foregroundStyle(store.isFavorite(destination.id) ? .yellow : .secondary)
             }
             .buttonStyle(.plain)
-            .help(store.isFavorite(destination.id) ? "取消收藏" : "加入收藏")
+            .help(
+                store.isFavorite(destination.id)
+                ? store.localized("ui.help.favorite.remove")
+                : store.localized("ui.help.favorite.add")
+            )
 
-            Button("打开") {
+            Button(store.localized("ui.button.open")) {
                 open(destination)
             }
             .buttonStyle(.borderedProminent)
@@ -166,7 +179,15 @@ struct MenuBarRootView: View {
     }
 
     private func open(_ destination: SettingsDestination) {
-        let result = navigator.open(destination)
-        store.setStatus(result.message)
+        _ = navigator.open(destination)
+    }
+
+    private func languageLabel(for option: LanguageOption) -> String {
+        if option.code == LocalizationManager.systemLanguageCode {
+            let systemName = localizationManager.systemLanguageName
+            return localizationManager.localized("ui.language.followSystem", systemName)
+        }
+
+        return option.label
     }
 }

@@ -2,18 +2,26 @@ import Foundation
 
 struct SettingsDestination: Identifiable, Hashable {
     let id: String
-    let title: String
-    let subtitle: String
+    let titleKey: String
+    let subtitleKey: String
     let symbolName: String
     let category: SettingsCategory
     let keywords: [String]
     let urlCandidates: [String]
 
-    func matches(query: String) -> Bool {
-        relevanceScore(for: query) != nil
+    func localizedTitle(using localizationManager: LocalizationManager) -> String {
+        localizationManager.localized(titleKey)
     }
 
-    func relevanceScore(for query: String) -> Int? {
+    func localizedSubtitle(using localizationManager: LocalizationManager) -> String {
+        localizationManager.localized(subtitleKey)
+    }
+
+    func matches(query: String, localizationManager: LocalizationManager) -> Bool {
+        relevanceScore(for: query, localizationManager: localizationManager) != nil
+    }
+
+    func relevanceScore(for query: String, localizationManager: LocalizationManager) -> Int? {
         let normalizedQuery = query
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -22,8 +30,8 @@ struct SettingsDestination: Identifiable, Hashable {
             return 0
         }
 
-        let normalizedTitle = title.lowercased()
-        let normalizedSubtitle = subtitle.lowercased()
+        let normalizedTitle = localizedTitle(using: localizationManager).lowercased()
+        let normalizedSubtitle = localizedSubtitle(using: localizationManager).lowercased()
 
         if normalizedTitle == normalizedQuery {
             return 1000

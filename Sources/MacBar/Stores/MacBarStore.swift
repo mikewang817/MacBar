@@ -13,10 +13,10 @@ final class MacBarStore: ObservableObject {
     @Published var searchText: String = ""
     @Published private(set) var favoriteIDs: Set<String>
     @Published private(set) var hasMouseDevice: Bool
-    @Published var statusMessage: String = ""
 
     private let defaults: UserDefaults
     private let inputDeviceMonitor: InputDeviceMonitor
+    private let localizationManager: LocalizationManager
     private var cancellables: Set<AnyCancellable> = []
 
     private enum Keys {
@@ -25,17 +25,26 @@ final class MacBarStore: ObservableObject {
 
     init(
         defaults: UserDefaults = .standard,
-        inputDeviceMonitor: InputDeviceMonitor = InputDeviceMonitor()
+        inputDeviceMonitor: InputDeviceMonitor = InputDeviceMonitor(),
+        localizationManager: LocalizationManager = LocalizationManager()
     ) {
         self.defaults = defaults
         self.favoriteIDs = Set(defaults.stringArray(forKey: Keys.favorites) ?? [])
         self.inputDeviceMonitor = inputDeviceMonitor
+        self.localizationManager = localizationManager
         self.hasMouseDevice = inputDeviceMonitor.isMouseConnected
 
         inputDeviceMonitor.$isMouseConnected
             .receive(on: RunLoop.main)
             .sink { [weak self] isConnected in
                 self?.hasMouseDevice = isConnected
+            }
+            .store(in: &cancellables)
+
+        localizationManager.$effectiveLanguageIdentifier
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
             }
             .store(in: &cancellables)
     }
@@ -55,7 +64,10 @@ final class MacBarStore: ObservableObject {
 
         return visibleDestinations
             .compactMap { destination -> (destination: SettingsDestination, relevance: Int)? in
-                guard let relevance = destination.relevanceScore(for: normalizedQuery) else {
+                guard let relevance = destination.relevanceScore(
+                    for: normalizedQuery,
+                    localizationManager: localizationManager
+                ) else {
                     return nil
                 }
 
@@ -70,14 +82,14 @@ final class MacBarStore: ObservableObject {
                     return isFavorite(lhs.destination.id)
                 }
 
-                return lhs.destination.title < rhs.destination.title
+                return localizedTitle(for: lhs.destination) < localizedTitle(for: rhs.destination)
             }
             .map(\.destination)
     }
 
     var favoriteDestinations: [SettingsDestination] {
         orderedDestinations(fromIDs: Array(favoriteIDs))
-            .sorted { $0.title < $1.title }
+            .sorted { localizedTitle(for: $0) < localizedTitle(for: $1) }
     }
 
     var groupedSearchResults: [CategorySection] {
@@ -88,7 +100,7 @@ final class MacBarStore: ObservableObject {
                     return isFavorite(lhs.id)
                 }
 
-                return lhs.title < rhs.title
+                return localizedTitle(for: lhs) < localizedTitle(for: rhs)
             }
 
         return SettingsCategory.allCases.compactMap { category in
@@ -99,6 +111,22 @@ final class MacBarStore: ObservableObject {
 
             return CategorySection(category: category, items: items)
         }
+    }
+
+    func localizedTitle(for destination: SettingsDestination) -> String {
+        destination.localizedTitle(using: localizationManager)
+    }
+
+    func localizedSubtitle(for destination: SettingsDestination) -> String {
+        destination.localizedSubtitle(using: localizationManager)
+    }
+
+    func localizedTitle(for category: SettingsCategory) -> String {
+        category.localizedTitle(using: localizationManager)
+    }
+
+    func localized(_ key: String) -> String {
+        localizationManager.localized(key)
     }
 
     func isFavorite(_ destinationID: String) -> Bool {
@@ -113,10 +141,6 @@ final class MacBarStore: ObservableObject {
         }
 
         saveFavorites()
-    }
-
-    func setStatus(_ message: String) {
-        statusMessage = message
     }
 
     private func orderedDestinations(fromIDs ids: [String]) -> [SettingsDestination] {

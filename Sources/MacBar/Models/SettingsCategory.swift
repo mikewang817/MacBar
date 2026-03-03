@@ -7,18 +7,18 @@ enum SettingsCategory: String, CaseIterable, Hashable {
     case privacy
     case system
 
-    var title: String {
+    func localizedTitle(using localizationManager: LocalizationManager) -> String {
         switch self {
         case .input:
-            return "输入设备"
+            return localizationManager.localized("category.input")
         case .displayAndSound:
-            return "显示与声音"
+            return localizationManager.localized("category.displayAndSound")
         case .connectivity:
-            return "连接"
+            return localizationManager.localized("category.connectivity")
         case .privacy:
-            return "隐私与安全"
+            return localizationManager.localized("category.privacy")
         case .system:
-            return "系统"
+            return localizationManager.localized("category.system")
         }
     }
 }

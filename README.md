@@ -10,6 +10,10 @@ MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你
 - 收藏：星标高频设置项，持久化保存。
 - 设备感知显示：未检测到鼠标设备时，自动隐藏“鼠标”入口。
 - 实时刷新：鼠标插拔后会自动刷新列表，无需重启 MacBar。
+- 多语言支持：默认跟随 macOS 系统语言，可在应用内切换语言。
+- 语言选项列表：仅展示已支持语言（不展示未支持语言）。
+- 使用人口阈值：内置“使用人口 >500万”语言资源（当前生成 164 个语言包，含方言回退映射）。
+- 资源生成脚本：`scripts/generate_localizations.py` 可重复生成本地化文件。
 - 失败回退：深链失效时自动回退到系统设置主页。
 
 ## 体验设计
@@ -17,6 +21,7 @@ MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你
 - 入口路径短：每个设置项都带有明确描述和单独“打开”按钮。
 - 信息密度高但可读：按类别分组，优先展示收藏。
 - 状态可见：每次打开后底部显示结果（成功/回退/失败）。
+- 国际化结构：文案全部通过 `Localizable.strings` 管理，便于继续扩展翻译。
 
 ## 技术方案
 
@@ -25,7 +30,7 @@ MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你
 - 架构分层：
   - `Data`：设置目录与深链候选
   - `Models`：领域模型与分类
-  - `Services`：系统设置导航器
+  - `Services`：系统设置导航器、设备检测、语言管理
   - `Stores`：状态管理与本地持久化
   - `Views`：菜单栏窗口 UI
 
@@ -42,9 +47,12 @@ MacBar/
     ├── Data/SettingsCatalog.swift
     ├── Models/SettingsCategory.swift
     ├── Models/SettingsDestination.swift
+    ├── Resources/*.lproj/Localizable.strings
+    ├── Services/LocalizationManager.swift
     ├── Services/SettingsNavigator.swift
     ├── Stores/MacBarStore.swift
     └── Views/MenuBarRootView.swift
+└── scripts/generate_localizations.py
 ```
 
 ## 运行
@@ -53,6 +61,16 @@ MacBar/
 cd /Users/patgo/app/MacBar
 swift build
 swift run MacBar
+```
+
+## 多语言资源再生成
+
+```bash
+cd /Users/patgo/app/MacBar
+python3 -m venv .venv
+source .venv/bin/activate
+pip install langcodes language-data deep-translator Babel
+python scripts/generate_localizations.py
 ```
 
 ## 下一步建议

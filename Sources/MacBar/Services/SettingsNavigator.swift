@@ -15,13 +15,16 @@ struct SettingsOpenResult {
 final class SettingsNavigator {
     private let workspace: NSWorkspace
     private let inputDeviceDetector: InputDeviceDetecting
+    private let localizationManager: LocalizationManager
 
     init(
         workspace: NSWorkspace = .shared,
-        inputDeviceDetector: InputDeviceDetecting = InputDeviceDetector()
+        inputDeviceDetector: InputDeviceDetecting = InputDeviceDetector(),
+        localizationManager: LocalizationManager = LocalizationManager()
     ) {
         self.workspace = workspace
         self.inputDeviceDetector = inputDeviceDetector
+        self.localizationManager = localizationManager
     }
 
     func open(_ destination: SettingsDestination) -> SettingsOpenResult {
@@ -29,14 +32,14 @@ final class SettingsNavigator {
             if let trackpad = SettingsCatalog.byID["trackpad"], openFirstAvailableURL(trackpad.urlCandidates) {
                 return SettingsOpenResult(
                     status: .fallback,
-                    message: "未检测到鼠标设备，已打开触控板设置"
+                    message: localizationManager.localized("status.mouseNotDetected.trackpad")
                 )
             }
 
             if let bluetooth = SettingsCatalog.byID["bluetooth"], openFirstAvailableURL(bluetooth.urlCandidates) {
                 return SettingsOpenResult(
                     status: .fallback,
-                    message: "未检测到鼠标设备，已打开蓝牙设置"
+                    message: localizationManager.localized("status.mouseNotDetected.bluetooth")
                 )
             }
         }
@@ -44,40 +47,55 @@ final class SettingsNavigator {
         if openFirstAvailableURL(destination.urlCandidates) {
             return SettingsOpenResult(
                 status: .success,
-                message: "已打开 \(destination.title)"
+                message: localizationManager.localized(
+                    "status.openedDestination",
+                    destination.localizedTitle(using: localizationManager)
+                )
             )
         }
 
         guard let homeURL = URL(string: "x-apple.systempreferences:") else {
             return SettingsOpenResult(
                 status: .failure,
-                message: "无法构造系统设置链接"
+                message: localizationManager.localized("status.invalidSettingsURL")
             )
         }
 
         if workspace.open(homeURL) {
             return SettingsOpenResult(
                 status: .fallback,
-                message: "已打开系统设置主页，请手动进入“\(destination.title)”"
+                message: localizationManager.localized(
+                    "status.openedSettingsHomeFallback",
+                    destination.localizedTitle(using: localizationManager)
+                )
             )
         }
 
         return SettingsOpenResult(
             status: .failure,
-            message: "打开失败，请检查系统设置是否可用"
+            message: localizationManager.localized("status.openFailed")
         )
     }
 
     func openSystemSettingsHome() -> SettingsOpenResult {
         guard let homeURL = URL(string: "x-apple.systempreferences:") else {
-            return SettingsOpenResult(status: .failure, message: "系统设置链接无效")
+            return SettingsOpenResult(
+                status: .failure,
+                message: localizationManager.localized("status.invalidHomeURL")
+            )
         }
 
         if workspace.open(homeURL) {
-            return SettingsOpenResult(status: .success, message: "已打开系统设置主页")
+            return SettingsOpenResult(
+                status: .success,
+                message: localizationManager.localized("status.openedHome")
+            )
         }
 
-        return SettingsOpenResult(status: .failure, message: "无法打开系统设置主页")
+        return SettingsOpenResult(
+            status: .failure,
+            message: localizationManager.localized("status.openHomeFailed")
+        )
     }
 
     private func openFirstAvailableURL(_ candidates: [String]) -> Bool {

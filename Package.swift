@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "MacBar",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],
@@ -15,7 +16,10 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "MacBar"
+            name: "MacBar",
+            resources: [
+                .process("Resources")
+            ]
         )
     ]
 )
