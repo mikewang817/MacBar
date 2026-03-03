@@ -8,7 +8,9 @@ final class AppConfigurationManager {
         selectedLanguageCode: String,
         clipboardItems: [ClipboardItem]? = nil,
         clipboardPinnedIDs: [String]? = nil,
-        clipboardMonitoringEnabled: Bool? = nil
+        clipboardMonitoringEnabled: Bool? = nil,
+        todoItems: [TodoItem]? = nil,
+        todoPinnedIDs: [String]? = nil
     ) -> AppConfiguration {
         AppConfiguration(
             schemaVersion: AppConfiguration.currentSchemaVersion,
@@ -16,7 +18,9 @@ final class AppConfigurationManager {
             selectedLanguageCode: selectedLanguageCode,
             clipboardItems: clipboardItems,
             clipboardPinnedIDs: clipboardPinnedIDs,
-            clipboardMonitoringEnabled: clipboardMonitoringEnabled
+            clipboardMonitoringEnabled: clipboardMonitoringEnabled,
+            todoItems: todoItems,
+            todoPinnedIDs: todoPinnedIDs
         )
     }
 

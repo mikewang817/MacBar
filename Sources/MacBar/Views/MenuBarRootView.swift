@@ -1370,8 +1370,15 @@ struct MenuBarRootView: View {
     }
 
     private func submitTodoInput() {
-        store.addTodoItem(title: store.todoInputText)
+        let feedback = store.addTodoItem(title: store.todoInputText)
+        guard feedback != nil else {
+            return
+        }
+
         store.todoInputText = ""
+        isTodoInputEditing = false
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        focusedField = .todo
         syncSelectedTodoItem()
     }
 

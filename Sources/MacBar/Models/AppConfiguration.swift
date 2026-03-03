@@ -7,8 +7,10 @@ struct AppConfiguration: Codable {
     let clipboardItems: [ClipboardItem]?
     let clipboardPinnedIDs: [String]?
     let clipboardMonitoringEnabled: Bool?
+    let todoItems: [TodoItem]?
+    let todoPinnedIDs: [String]?
 
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     init(
         schemaVersion: Int,
@@ -16,7 +18,9 @@ struct AppConfiguration: Codable {
         selectedLanguageCode: String,
         clipboardItems: [ClipboardItem]? = nil,
         clipboardPinnedIDs: [String]? = nil,
-        clipboardMonitoringEnabled: Bool? = nil
+        clipboardMonitoringEnabled: Bool? = nil,
+        todoItems: [TodoItem]? = nil,
+        todoPinnedIDs: [String]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.favoriteIDs = favoriteIDs
@@ -24,6 +28,8 @@ struct AppConfiguration: Codable {
         self.clipboardItems = clipboardItems
         self.clipboardPinnedIDs = clipboardPinnedIDs
         self.clipboardMonitoringEnabled = clipboardMonitoringEnabled
+        self.todoItems = todoItems
+        self.todoPinnedIDs = todoPinnedIDs
     }
 }
 
