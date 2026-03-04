@@ -10,7 +10,9 @@ final class AppConfigurationManager {
         clipboardPinnedIDs: [String]? = nil,
         clipboardMonitoringEnabled: Bool? = nil,
         todoItems: [TodoItem]? = nil,
-        todoPinnedIDs: [String]? = nil
+        todoPinnedIDs: [String]? = nil,
+        todoAIModelSource: String? = nil,
+        todoAIModelReference: String? = nil
     ) -> AppConfiguration {
         AppConfiguration(
             schemaVersion: AppConfiguration.currentSchemaVersion,
@@ -20,7 +22,9 @@ final class AppConfigurationManager {
             clipboardPinnedIDs: clipboardPinnedIDs,
             clipboardMonitoringEnabled: clipboardMonitoringEnabled,
             todoItems: todoItems,
-            todoPinnedIDs: todoPinnedIDs
+            todoPinnedIDs: todoPinnedIDs,
+            todoAIModelSource: todoAIModelSource,
+            todoAIModelReference: todoAIModelReference
         )
     }
 

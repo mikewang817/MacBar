@@ -9,8 +9,10 @@ struct AppConfiguration: Codable {
     let clipboardMonitoringEnabled: Bool?
     let todoItems: [TodoItem]?
     let todoPinnedIDs: [String]?
+    let todoAIModelSource: String?
+    let todoAIModelReference: String?
 
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     init(
         schemaVersion: Int,
@@ -20,7 +22,9 @@ struct AppConfiguration: Codable {
         clipboardPinnedIDs: [String]? = nil,
         clipboardMonitoringEnabled: Bool? = nil,
         todoItems: [TodoItem]? = nil,
-        todoPinnedIDs: [String]? = nil
+        todoPinnedIDs: [String]? = nil,
+        todoAIModelSource: String? = nil,
+        todoAIModelReference: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.favoriteIDs = favoriteIDs
@@ -30,6 +34,8 @@ struct AppConfiguration: Codable {
         self.clipboardMonitoringEnabled = clipboardMonitoringEnabled
         self.todoItems = todoItems
         self.todoPinnedIDs = todoPinnedIDs
+        self.todoAIModelSource = todoAIModelSource
+        self.todoAIModelReference = todoAIModelReference
     }
 }
 

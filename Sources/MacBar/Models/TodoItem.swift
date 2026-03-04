@@ -12,6 +12,7 @@ struct TodoItem: Identifiable, Codable, Hashable {
     var notes: String?
     var priority: TodoPriority?
     var dueDate: Date?
+    var reminderDate: Date?
     var isCompleted: Bool
     let createdAt: Date
 
@@ -21,6 +22,7 @@ struct TodoItem: Identifiable, Codable, Hashable {
         notes: String? = nil,
         priority: TodoPriority? = nil,
         dueDate: Date? = nil,
+        reminderDate: Date? = nil,
         isCompleted: Bool = false,
         createdAt: Date = Date()
     ) {
@@ -29,6 +31,7 @@ struct TodoItem: Identifiable, Codable, Hashable {
         self.notes = notes
         self.priority = priority
         self.dueDate = dueDate
+        self.reminderDate = reminderDate
         self.isCompleted = isCompleted
         self.createdAt = createdAt
     }

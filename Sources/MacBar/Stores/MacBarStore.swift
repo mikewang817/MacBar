@@ -27,6 +27,8 @@ final class MacBarStore: ObservableObject {
     @Published private(set) var isClipboardMonitoringEnabled: Bool
     @Published private(set) var todoItems: [TodoItem]
     @Published private(set) var pinnedTodoItemIDs: Set<UUID>
+    @Published private(set) var todoAIModelSource: TodoAIModelSource
+    @Published private(set) var todoAIModelReference: String
 
     private let defaults: UserDefaults
     private let inputDeviceMonitor: InputDeviceMonitor
@@ -46,6 +48,8 @@ final class MacBarStore: ObservableObject {
         static let clipboardMonitoringEnabled = "macbar.clipboardMonitoringEnabled"
         static let todoItemsData = "macbar.todoItemsData"
         static let pinnedTodoIDs = "macbar.pinnedTodoIDs"
+        static let todoAIModelSource = "macbar.todoAIModelSource"
+        static let todoAIModelReference = "macbar.todoAIModelReference"
     }
 
     init(
@@ -67,9 +71,15 @@ final class MacBarStore: ObservableObject {
         self.isClipboardMonitoringEnabled = defaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool ?? true
         self.todoItems = Self.loadTodoItems(defaults: defaults)
         self.pinnedTodoItemIDs = Self.loadPinnedTodoIDs(defaults: defaults)
+        self.todoAIModelSource = TodoAIModelSource(
+            rawValue: defaults.string(forKey: Keys.todoAIModelSource) ?? ""
+        ) ?? .embedded
+        self.todoAIModelReference = defaults.string(forKey: Keys.todoAIModelReference)
+            ?? TodoAIModelConfig.defaultModelReference
 
         normalizeClipboardState()
         normalizeTodoState()
+        normalizeTodoAIModelConfig()
         configureClipboardMonitoring()
 
         inputDeviceMonitor.$isMouseConnected
@@ -218,6 +228,10 @@ final class MacBarStore: ObservableObject {
         localizationManager.localized(key, arguments: arguments)
     }
 
+    var todoAIModelConfig: TodoAIModelConfig {
+        TodoAIModelConfig(source: todoAIModelSource, reference: todoAIModelReference)
+    }
+
     func isFavorite(_ destinationID: String) -> Bool {
         favoriteIDs.contains(destinationID)
     }
@@ -230,6 +244,30 @@ final class MacBarStore: ObservableObject {
         }
 
         saveFavorites()
+    }
+
+    func setTodoAIModelSource(_ source: TodoAIModelSource) {
+        guard todoAIModelSource != source else {
+            return
+        }
+
+        todoAIModelSource = source
+        defaults.set(source.rawValue, forKey: Keys.todoAIModelSource)
+    }
+
+    func setTodoAIModelReference(_ reference: String) {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.isEmpty ? TodoAIModelConfig.defaultModelReference : trimmed
+        guard todoAIModelReference != normalized else {
+            return
+        }
+
+        todoAIModelReference = normalized
+        defaults.set(normalized, forKey: Keys.todoAIModelReference)
+    }
+
+    func resetTodoAIModelReference() {
+        setTodoAIModelReference(TodoAIModelConfig.defaultModelReference)
     }
 
     func isClipboardItemPinned(_ itemID: UUID) -> Bool {
@@ -351,11 +389,26 @@ final class MacBarStore: ObservableObject {
     }
 
     @discardableResult
-    func addTodoItem(title: String) -> StoreFeedback? {
+    func addTodoItem(
+        title: String,
+        notes: String? = nil,
+        priority: TodoPriority? = nil,
+        dueDate: Date? = nil,
+        reminderDate: Date? = nil
+    ) -> StoreFeedback? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let item = TodoItem(title: trimmed)
+        let normalizedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedReminderDate = normalizeReminderDate(reminderDate, dueDate: dueDate)
+
+        let item = TodoItem(
+            title: trimmed,
+            notes: normalizedNotes?.isEmpty == true ? nil : normalizedNotes,
+            priority: priority,
+            dueDate: dueDate,
+            reminderDate: normalizedReminderDate
+        )
         todoItems.insert(item, at: 0)
         saveTodoItems()
         return makeFeedback(
@@ -375,13 +428,19 @@ final class MacBarStore: ObservableObject {
         title: String? = nil,
         notes: String? = nil,
         priority: TodoPriority?? = nil,
-        dueDate: Date?? = nil
+        dueDate: Date?? = nil,
+        reminderDate: Date?? = nil
     ) {
         guard let index = todoItems.firstIndex(where: { $0.id == itemID }) else { return }
         if let title { todoItems[index].title = title }
         if let notes { todoItems[index].notes = notes }
         if let priority { todoItems[index].priority = priority }
         if let dueDate { todoItems[index].dueDate = dueDate }
+        if let reminderDate { todoItems[index].reminderDate = reminderDate }
+        todoItems[index].reminderDate = normalizeReminderDate(
+            todoItems[index].reminderDate,
+            dueDate: todoItems[index].dueDate
+        )
         saveTodoItems()
     }
 
@@ -411,6 +470,14 @@ final class MacBarStore: ObservableObject {
         formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
         formatter.unitsStyle = .short
         return formatter.localizedString(for: dueDate, relativeTo: Date())
+    }
+
+    func todoReminderDateLabel(for item: TodoItem) -> String? {
+        guard let reminderDate = item.reminderDate else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: reminderDate, relativeTo: Date())
     }
 
     func todoCreatedAtLabel(for item: TodoItem) -> String {
@@ -670,6 +737,35 @@ final class MacBarStore: ObservableObject {
     private func normalizeTodoState() {
         let existingIDs = Set(todoItems.map(\.id))
         pinnedTodoItemIDs = pinnedTodoItemIDs.intersection(existingIDs)
+        todoItems = todoItems.map { item in
+            var mutable = item
+            mutable.reminderDate = normalizeReminderDate(mutable.reminderDate, dueDate: mutable.dueDate)
+            return mutable
+        }
+    }
+
+    private func normalizeTodoAIModelConfig() {
+        let normalized = todoAIModelReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty {
+            todoAIModelReference = TodoAIModelConfig.defaultModelReference
+        } else {
+            todoAIModelReference = normalized
+        }
+
+        defaults.set(todoAIModelSource.rawValue, forKey: Keys.todoAIModelSource)
+        defaults.set(todoAIModelReference, forKey: Keys.todoAIModelReference)
+    }
+
+    private func normalizeReminderDate(_ reminderDate: Date?, dueDate: Date?) -> Date? {
+        guard let reminderDate else {
+            return nil
+        }
+
+        guard let dueDate else {
+            return reminderDate
+        }
+
+        return reminderDate > dueDate ? dueDate : reminderDate
     }
 
     private func currentConfiguration() -> AppConfiguration {
@@ -680,7 +776,9 @@ final class MacBarStore: ObservableObject {
             clipboardPinnedIDs: Array(pinnedClipboardItemIDs).map(\.uuidString).sorted(),
             clipboardMonitoringEnabled: isClipboardMonitoringEnabled,
             todoItems: todoItems,
-            todoPinnedIDs: Array(pinnedTodoItemIDs).map(\.uuidString).sorted()
+            todoPinnedIDs: Array(pinnedTodoItemIDs).map(\.uuidString).sorted(),
+            todoAIModelSource: todoAIModelSource.rawValue,
+            todoAIModelReference: todoAIModelReference
         )
     }
 
@@ -714,7 +812,19 @@ final class MacBarStore: ObservableObject {
         if let importedTodoPinnedIDs = configuration.todoPinnedIDs {
             pinnedTodoItemIDs = Set(importedTodoPinnedIDs.compactMap(UUID.init(uuidString:)))
         }
+
+        if let importedTodoAIModelSource = configuration.todoAIModelSource,
+           let source = TodoAIModelSource(rawValue: importedTodoAIModelSource) {
+            todoAIModelSource = source
+            defaults.set(source.rawValue, forKey: Keys.todoAIModelSource)
+        }
+
+        if let importedTodoAIModelReference = configuration.todoAIModelReference {
+            setTodoAIModelReference(importedTodoAIModelReference)
+        }
+
         normalizeTodoState()
+        normalizeTodoAIModelConfig()
         saveTodoItems()
         savePinnedTodoIDs()
     }

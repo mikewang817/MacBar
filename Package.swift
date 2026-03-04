@@ -6,7 +6,7 @@ let package = Package(
     name: "MacBar",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .executable(
@@ -14,9 +14,16 @@ let package = Package(
             targets: ["MacBar"]
         )
     ],
+    dependencies: [
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", revision: "e33eba8513595bde535719c48fedcb10ade5af57")
+    ],
     targets: [
         .executableTarget(
             name: "MacBar",
+            dependencies: [
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm")
+            ],
             resources: [
                 .process("Resources")
             ]

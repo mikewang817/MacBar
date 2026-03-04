@@ -12,9 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
-    private weak var observedPanelWindow: NSWindow?
     private let panelDetachedTopGap: CGFloat = 8
     private let defaultPanelSize = NSSize(width: 460, height: 620)
+    private var pendingPanelSize: NSSize?
+    private var isApplyingPendingPanelSize = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -24,7 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         stopEventMonitors()
-        endObservingPanelWindow()
     }
 
     private func setupStatusItem() {
@@ -42,15 +42,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: services.store,
             localizationManager: services.localizationManager,
             navigator: services.navigator,
+            todoAIService: services.todoAIService,
             onPreferredSizeChange: { [weak self] size in
                 self?.updatePanelContentSize(size)
             }
         )
-        .background(.regularMaterial)
 
         let panel = MacBarPanel(
             contentRect: NSRect(origin: .zero, size: defaultPanelSize),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -62,10 +62,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .statusBar
         panel.collectionBehavior = [.transient, .moveToActiveSpace, .ignoresCycle]
         panel.contentViewController = NSHostingController(rootView: rootView)
-
-        panel.contentView?.wantsLayer = true
-        panel.contentView?.layer?.cornerRadius = 16
-        panel.contentView?.layer?.masksToBounds = true
 
         self.panel = panel
     }
@@ -91,7 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         positionPanel(relativeTo: button, panel: panel)
         statusItem?.button?.isHighlighted = true
-        beginObservingPanelWindow(panel)
         startEventMonitors()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
@@ -109,13 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderOut(nil)
         statusItem?.button?.isHighlighted = false
         stopEventMonitors()
-        endObservingPanelWindow()
     }
 
     private func startEventMonitors() {
         if localEventMonitor == nil {
             localEventMonitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
             ) { [weak self] event in
                 self?.handleLocalEvent(event) ?? event
             }
@@ -150,15 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleLocalEvent(_ event: NSEvent) -> NSEvent? {
         guard let panel, panel.isVisible else {
-            return event
-        }
-
-        if event.type == .keyDown, event.keyCode == 53 {
-            closePanel()
-            return nil
-        }
-
-        guard event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown else {
             return event
         }
 
@@ -198,73 +183,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return window.convertToScreen(buttonFrameInWindow)
     }
 
-    private func beginObservingPanelWindow(_ window: NSWindow) {
-        guard observedPanelWindow !== window else {
-            return
-        }
-
-        endObservingPanelWindow()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(panelWindowFrameDidChange(_:)),
-            name: NSWindow.didResizeNotification,
-            object: window
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(panelWindowFrameDidChange(_:)),
-            name: NSWindow.didChangeScreenNotification,
-            object: window
-        )
-        observedPanelWindow = window
-    }
-
-    private func endObservingPanelWindow() {
-        guard let window = observedPanelWindow else {
-            return
-        }
-
-        NotificationCenter.default.removeObserver(
-            self,
-            name: NSWindow.didResizeNotification,
-            object: window
-        )
-        NotificationCenter.default.removeObserver(
-            self,
-            name: NSWindow.didChangeScreenNotification,
-            object: window
-        )
-        observedPanelWindow = nil
-    }
-
-    @objc
-    private func panelWindowFrameDidChange(_ notification: Notification) {
-        adjustPanelWindowToVisibleFrame()
-    }
-
     private func updatePanelContentSize(_ size: CGSize) {
-        guard let panel else {
-            return
-        }
-
         let clampedSize = NSSize(
             width: max(defaultPanelSize.width, size.width),
             height: max(defaultPanelSize.height, size.height)
         )
 
-        guard panel.frame.size != clampedSize else {
-            return
-        }
-
-        var frame = panel.frame
-        frame.size = clampedSize
-        panel.setFrame(frame, display: panel.isVisible)
-
-        if let button = statusItem?.button {
-            positionPanel(relativeTo: button, panel: panel)
-        } else {
-            adjustPanelWindowToVisibleFrame(panel)
-        }
+        queuePanelContentSizeUpdate(clampedSize)
     }
 
     private func positionPanel(relativeTo button: NSStatusBarButton, panel: NSPanel) {
@@ -306,6 +231,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frame.origin.x = clampedX
             frame.origin.y = clampedY
             window.setFrameOrigin(frame.origin)
+        }
+    }
+
+    private func queuePanelContentSizeUpdate(_ size: NSSize) {
+        pendingPanelSize = size
+        guard !isApplyingPendingPanelSize else {
+            return
+        }
+
+        isApplyingPendingPanelSize = true
+        DispatchQueue.main.async { [weak self] in
+            self?.applyPendingPanelSizeIfNeeded()
+        }
+    }
+
+    private func applyPendingPanelSizeIfNeeded() {
+        defer {
+            isApplyingPendingPanelSize = false
+        }
+
+        guard let panel else {
+            pendingPanelSize = nil
+            return
+        }
+
+        while let desiredSize = pendingPanelSize {
+            pendingPanelSize = nil
+
+            if panel.frame.size != desiredSize {
+                var frame = panel.frame
+                frame.size = desiredSize
+                panel.setFrame(frame, display: panel.isVisible)
+            }
+
+            if let button = statusItem?.button {
+                positionPanel(relativeTo: button, panel: panel)
+            } else {
+                adjustPanelWindowToVisibleFrame(panel)
+            }
         }
     }
 }

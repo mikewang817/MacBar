@@ -7,6 +7,7 @@ final class AppServices {
     let localizationManager: LocalizationManager
     let store: MacBarStore
     let navigator: SettingsNavigator
+    let todoAIService: TodoIntentAIService
 
     private init() {
         let localizationManager = LocalizationManager()
@@ -23,5 +24,6 @@ final class AppServices {
             inputDeviceDetector: inputDeviceMonitor,
             localizationManager: localizationManager
         )
+        self.todoAIService = LocalMLXTodoIntentService()
     }
 }

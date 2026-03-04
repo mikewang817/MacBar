@@ -18,6 +18,8 @@ MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你
 - 深层跳转：为键盘/声音/网络/通知/隐私与安全性/日期与时间等提供子页直达。
 - 配置管理：支持导出 JSON 配置与导入配置。
 - 剪贴板历史：支持自动监听、搜索、复制回贴板、置顶、删除、清空未置顶与暂停/恢复监听。
+- 待办本地 AI 助手：可调用本地 MLX 小模型解析自然语言，自动提取标题、优先级、截止时间与提醒时间，并支持简短多轮澄清。
+- AI 模型来源可切换：支持 Hugging Face 仓库 ID/链接、本地模型目录、外部压缩包 URL（`.zip/.tar/.tar.gz`）。
 
 ## 体验设计
 
@@ -28,14 +30,15 @@ MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你
 
 ## 技术方案
 
-- 语言与框架：Swift 6 + SwiftUI + AppKit
+- 语言与框架：Swift 6 + SwiftUI + AppKit + MLX Swift
 - 打包方式：Swift Package 可执行目标
 - 架构分层：
   - `Data`：设置目录与深链候选
   - `Models`：领域模型与分类
   - `Services`：系统设置导航器、设备检测、语言管理
-  - `Stores`：状态管理与本地持久化
-  - `Views`：菜单栏窗口 UI
+- `Stores`：状态管理与本地持久化
+- `Views`：菜单栏窗口 UI
+- `Services/TodoIntentAIService.swift`：Swift 原生 MLX 待办意图解析服务
 
 ## 项目结构
 
@@ -55,6 +58,7 @@ MacBar/
     ├── Services/AppConfigurationManager.swift
     ├── Services/LocalizationManager.swift
     ├── Services/SettingsNavigator.swift
+    ├── Services/TodoIntentAIService.swift
     ├── Stores/MacBarStore.swift
     └── Views/MenuBarRootView.swift
 └── scripts/generate_localizations.py
@@ -67,6 +71,13 @@ cd /Users/patgo/app/MacBar
 swift build
 swift run MacBar
 ```
+
+## 待办本地 AI（MLX）准备
+
+- 现在已改为 Swift 原生调用 MLX，不再依赖 Python 或 `pip install mlx-lm`。
+- 默认内置模型目录：`Sources/MacBar/Resources/EmbeddedModels/Qwen3.5-0.8B-MLX-4bit`。
+- 只要该目录随 App 一起打包，终端用户首次使用也无需下载模型。
+- 由于 MLX Swift 依赖，项目最低系统版本为 macOS 14。
 
 ## 多语言资源再生成
 

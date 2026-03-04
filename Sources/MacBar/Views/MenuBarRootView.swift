@@ -11,6 +11,7 @@ struct MenuBarRootView: View {
     @ObservedObject var store: MacBarStore
     @ObservedObject var localizationManager: LocalizationManager
     let navigator: SettingsNavigator
+    let todoAIService: TodoIntentAIService
     let onPreferredSizeChange: ((CGSize) -> Void)?
     @State private var focusedField: SearchField?
     @State private var alertTitle: String = ""
@@ -20,6 +21,8 @@ struct MenuBarRootView: View {
     @State private var selectedClipboardItemID: UUID?
     @State private var selectedTodoItemID: UUID?
     @State private var isTodoInputEditing: Bool = false
+    @State private var isTodoAIProcessing: Bool = false
+    @State private var todoAIConversation: [TodoAIMessage] = []
     @State private var keyDownMonitor: Any?
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
@@ -101,6 +104,15 @@ struct MenuBarRootView: View {
         }
         .frame(height: panelHeight)
         .animation(.easeInOut(duration: 0.2), value: showPreview)
+        .background(
+            .regularMaterial,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onAppear {
             onPreferredSizeChange?(preferredPanelSize)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -116,10 +128,10 @@ struct MenuBarRootView: View {
             syncSelectedTodoItem()
             installKeyMonitorIfNeeded()
         }
-        .onChange(of: showPreview) { _ in
+        .onChange(of: showPreview) {
             onPreferredSizeChange?(preferredPanelSize)
         }
-        .onChange(of: store.activePanel) { newPanel in
+        .onChange(of: store.activePanel) { _, newPanel in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 switch newPanel {
                 case .settings: focusedField = .settings
@@ -135,16 +147,16 @@ struct MenuBarRootView: View {
             switch newPanel {
             case .settings: syncSelectedSettingsDestination()
             case .clipboard: syncSelectedClipboardItem()
-            case .todo: syncSelectedTodoItem()
+        case .todo: syncSelectedTodoItem()
             }
         }
-        .onChange(of: settingsNavigationIDs) { _ in
+        .onChange(of: settingsNavigationIDs) {
             syncSelectedSettingsDestination()
         }
-        .onChange(of: clipboardNavigationIDs) { _ in
+        .onChange(of: clipboardNavigationIDs) {
             syncSelectedClipboardItem()
         }
-        .onChange(of: todoNavigationIDs) { _ in
+        .onChange(of: todoNavigationIDs) {
             syncSelectedTodoItem()
         }
         .onDisappear {
@@ -313,7 +325,7 @@ struct MenuBarRootView: View {
                                         get: { item.dueDate ?? Date() },
                                         set: { store.updateTodoItem(item.id, dueDate: .some($0)) }
                                     ),
-                                    displayedComponents: [.date]
+                                    displayedComponents: [.date, .hourAndMinute]
                                 )
                                 .labelsHidden()
                                 .controlSize(.small)
@@ -329,6 +341,41 @@ struct MenuBarRootView: View {
                             } else {
                                 Button(store.localized("ui.todo.preview.addDueDate")) {
                                     store.updateTodoItem(item.id, dueDate: .some(Date()))
+                                }
+                                .font(.caption)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        // Reminder picker
+                        HStack {
+                            Text(store.localized("ui.todo.preview.reminderDate.label"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if item.reminderDate != nil {
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { item.reminderDate ?? Date() },
+                                        set: { store.updateTodoItem(item.id, reminderDate: .some($0)) }
+                                    ),
+                                    displayedComponents: [.date, .hourAndMinute]
+                                )
+                                .labelsHidden()
+                                .controlSize(.small)
+
+                                Button {
+                                    store.updateTodoItem(item.id, reminderDate: .some(nil))
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Button(store.localized("ui.todo.preview.addReminderDate")) {
+                                    store.updateTodoItem(item.id, reminderDate: .some(Date()))
                                 }
                                 .font(.caption)
                                 .controlSize(.small)
@@ -364,6 +411,11 @@ struct MenuBarRootView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if let dueLabel = store.todoDueDateLabel(for: item) {
                     Text(store.localized("ui.todo.preview.dueDate", dueLabel))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let reminderLabel = store.todoReminderDateLabel(for: item) {
+                    Text(store.localized("ui.todo.preview.reminderDate", reminderLabel))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1338,6 +1390,8 @@ struct MenuBarRootView: View {
         let recent = store.recentTodoItems
 
         VStack(alignment: .leading, spacing: 14) {
+            todoAIModelConfigCard
+            todoAIConversationCard
             todoInputField
 
             if pinned.isEmpty, recent.isEmpty {
@@ -1360,6 +1414,97 @@ struct MenuBarRootView: View {
         }
     }
 
+    private var todoAIModelConfigCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "cpu")
+                    .foregroundStyle(.secondary)
+                Text(store.localized("ui.todo.ai.model.section"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    store.resetTodoAIModelReference()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.plain)
+                .help(store.localized("ui.todo.ai.model.reset"))
+            }
+
+            Picker("", selection: Binding(
+                get: { store.todoAIModelSource },
+                set: { store.setTodoAIModelSource($0) }
+            )) {
+                ForEach(TodoAIModelSource.allCases, id: \.self) { source in
+                    Text(localizedModelSourceTitle(source)).tag(source)
+                }
+            }
+            .pickerStyle(.menu)
+
+            TextField(
+                store.localized("ui.todo.ai.model.reference.placeholder"),
+                text: Binding(
+                    get: { store.todoAIModelReference },
+                    set: { store.setTodoAIModelReference($0) }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+
+            Text(modelSourceHint(for: store.todoAIModelSource))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.quaternary.opacity(0.35))
+        )
+    }
+
+    @ViewBuilder
+    private var todoAIConversationCard: some View {
+        if isTodoAIProcessing || !todoAIConversation.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.secondary)
+                    Text(store.localized("ui.todo.ai.section"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if isTodoAIProcessing {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+
+                ForEach(Array(todoAIConversation.suffix(4).enumerated()), id: \.offset) { _, message in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(
+                            message.role == .user
+                                ? store.localized("ui.todo.ai.role.user")
+                                : store.localized("ui.todo.ai.role.assistant")
+                        )
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                        Text(message.content)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
+                    }
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.quaternary.opacity(0.35))
+            )
+        }
+    }
+
     private var todoInputField: some View {
         HStack(spacing: 8) {
             TextField(
@@ -1372,10 +1517,27 @@ struct MenuBarRootView: View {
                     }
                 },
                 onCommit: {
-                    submitTodoInput()
+                    submitTodoInputUsingAI()
                 }
             )
             .textFieldStyle(.roundedBorder)
+            .disabled(isTodoAIProcessing)
+
+            Button {
+                submitTodoInputUsingAI()
+            } label: {
+                if isTodoAIProcessing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.title3)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(store.todoInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isTodoAIProcessing)
+            .help(store.localized("ui.todo.ai.button"))
 
             Button {
                 submitTodoInput()
@@ -1384,7 +1546,8 @@ struct MenuBarRootView: View {
                     .font(.title3)
             }
             .buttonStyle(.plain)
-            .disabled(store.todoInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(store.todoInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isTodoAIProcessing)
+            .help(store.localized("ui.todo.button.quickAdd"))
         }
         .submitScope()
     }
@@ -1396,10 +1559,99 @@ struct MenuBarRootView: View {
         }
 
         store.todoInputText = ""
+        moveFocusToTodoSearch()
+        syncSelectedTodoItem()
+    }
+
+    private func submitTodoInputUsingAI() {
+        let input = store.todoInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty, !isTodoAIProcessing else {
+            return
+        }
+
+        let history = Array(todoAIConversation.suffix(8))
+        appendTodoAIMessage(role: .user, content: input)
+        store.todoInputText = ""
+        isTodoAIProcessing = true
+
+        Task { @MainActor in
+            defer {
+                isTodoAIProcessing = false
+            }
+
+            do {
+                let result = try await todoAIService.interpret(
+                    userInput: input,
+                    conversation: history,
+                    localeIdentifier: localizationManager.effectiveLanguageIdentifier,
+                    timeZone: .autoupdatingCurrent,
+                    modelConfig: store.todoAIModelConfig
+                )
+
+                appendTodoAIMessage(role: .assistant, content: result.assistantReply)
+
+                if case .addTodo = result.intent, let draft = result.draft {
+                    _ = store.addTodoItem(
+                        title: draft.title,
+                        notes: draft.notes,
+                        priority: draft.priority,
+                        dueDate: draft.dueDate,
+                        reminderDate: draft.reminderDate
+                    )
+                    syncSelectedTodoItem()
+                    moveFocusToTodoSearch()
+                }
+            } catch {
+                appendTodoAIMessage(role: .assistant, content: error.localizedDescription)
+            }
+        }
+    }
+
+    private func appendTodoAIMessage(role: TodoAIMessage.Role, content: String) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
+
+        todoAIConversation.append(TodoAIMessage(role: role, content: trimmed))
+        if todoAIConversation.count > 12 {
+            todoAIConversation.removeFirst(todoAIConversation.count - 12)
+        }
+    }
+
+    private func moveFocusToTodoSearch() {
         isTodoInputEditing = false
         NSApp.keyWindow?.makeFirstResponder(nil)
         focusedField = .todo
-        syncSelectedTodoItem()
+    }
+
+    private func localizedModelSourceTitle(_ source: TodoAIModelSource) -> String {
+        switch source {
+        case .embedded:
+            return store.localized("ui.todo.ai.model.source.embedded")
+        case .huggingFace:
+            return store.localized("ui.todo.ai.model.source.huggingface")
+        case .localPath:
+            return store.localized("ui.todo.ai.model.source.localPath")
+        case .directURL:
+            return store.localized("ui.todo.ai.model.source.directUrl")
+        }
+    }
+
+    private func modelSourceHint(for source: TodoAIModelSource) -> String {
+        switch source {
+        case .embedded:
+            return store.localized("ui.todo.ai.model.hint.embedded")
+        case .huggingFace:
+            return store.localized(
+                "ui.todo.ai.model.hint.huggingface",
+                TodoAIModelConfig.defaultModelReference
+            )
+        case .localPath:
+            return store.localized("ui.todo.ai.model.hint.localPath")
+        case .directURL:
+            return store.localized("ui.todo.ai.model.hint.directUrl")
+        }
     }
 
     private var todoEmptyState: some View {
@@ -1460,10 +1712,18 @@ struct MenuBarRootView: View {
 
             Spacer(minLength: 8)
 
-            if let dueLabel = store.todoDueDateLabel(for: item) {
-                Text(dueLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .trailing, spacing: 2) {
+                if let dueLabel = store.todoDueDateLabel(for: item) {
+                    Text(dueLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                if let reminderLabel = store.todoReminderDateLabel(for: item) {
+                    Label(reminderLabel, systemImage: "bell")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Button {
