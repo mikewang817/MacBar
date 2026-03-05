@@ -8,86 +8,41 @@ struct StoreFeedback {
 
 @MainActor
 final class MacBarStore: ObservableObject {
-    struct CategorySection: Identifiable {
-        let category: SettingsCategory
-        let items: [SettingsDestination]
-
-        var id: String { category.rawValue }
-    }
-
-    @Published var activePanel: AppPanel = .settings
-    @Published var searchText: String = ""
+    @Published var activePanel: AppPanel = .clipboard
     @Published var clipboardSearchText: String = ""
-    @Published var todoSearchText: String = ""
-    @Published var todoInputText: String = ""
-    @Published private(set) var favoriteIDs: Set<String>
-    @Published private(set) var hasMouseDevice: Bool
     @Published private(set) var clipboardHistory: [ClipboardItem]
     @Published private(set) var pinnedClipboardItemIDs: Set<UUID>
     @Published private(set) var isClipboardMonitoringEnabled: Bool
-    @Published private(set) var todoItems: [TodoItem]
-    @Published private(set) var pinnedTodoItemIDs: Set<UUID>
-    @Published private(set) var todoAIModelSource: TodoAIModelSource
-    @Published private(set) var todoAIModelReference: String
+    @Published private(set) var clipboardOCRCache: [UUID: String] = [:]
 
     private let defaults: UserDefaults
-    private let inputDeviceMonitor: InputDeviceMonitor
     private let localizationManager: LocalizationManager
     private let configurationManager: AppConfigurationManager
     private let clipboardMonitor: ClipboardMonitor
     private var cancellables: Set<AnyCancellable> = []
 
-    private let maxUnpinnedClipboardItems = 200
-    private let maxClipboardCharacterCount = 20_000
-    private let maxClipboardImageBytes = 8_000_000
-
     private enum Keys {
-        static let favorites = "macbar.favoriteIDs"
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
         static let pinnedClipboardIDs = "macbar.pinnedClipboardIDs"
         static let clipboardMonitoringEnabled = "macbar.clipboardMonitoringEnabled"
-        static let todoItemsData = "macbar.todoItemsData"
-        static let pinnedTodoIDs = "macbar.pinnedTodoIDs"
-        static let todoAIModelSource = "macbar.todoAIModelSource"
-        static let todoAIModelReference = "macbar.todoAIModelReference"
     }
 
     init(
         defaults: UserDefaults = .standard,
-        inputDeviceMonitor: InputDeviceMonitor = InputDeviceMonitor(),
         localizationManager: LocalizationManager = LocalizationManager(),
         configurationManager: AppConfigurationManager = AppConfigurationManager(),
         clipboardMonitor: ClipboardMonitor = ClipboardMonitor()
     ) {
         self.defaults = defaults
-        self.favoriteIDs = Set(defaults.stringArray(forKey: Keys.favorites) ?? [])
-        self.inputDeviceMonitor = inputDeviceMonitor
         self.localizationManager = localizationManager
         self.configurationManager = configurationManager
         self.clipboardMonitor = clipboardMonitor
-        self.hasMouseDevice = inputDeviceMonitor.isMouseConnected
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
         self.isClipboardMonitoringEnabled = defaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool ?? true
-        self.todoItems = Self.loadTodoItems(defaults: defaults)
-        self.pinnedTodoItemIDs = Self.loadPinnedTodoIDs(defaults: defaults)
-        self.todoAIModelSource = TodoAIModelSource(
-            rawValue: defaults.string(forKey: Keys.todoAIModelSource) ?? ""
-        ) ?? .embedded
-        self.todoAIModelReference = defaults.string(forKey: Keys.todoAIModelReference)
-            ?? TodoAIModelConfig.defaultModelReference
 
         normalizeClipboardState()
-        normalizeTodoState()
-        normalizeTodoAIModelConfig()
         configureClipboardMonitoring()
-
-        inputDeviceMonitor.$isMouseConnected
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isConnected in
-                self?.hasMouseDevice = isConnected
-            }
-            .store(in: &cancellables)
 
         localizationManager.$effectiveLanguageIdentifier
             .receive(on: RunLoop.main)
@@ -105,72 +60,8 @@ final class MacBarStore: ObservableObject {
             .store(in: &cancellables)
     }
 
-    var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     var isClipboardSearching: Bool {
         !clipboardSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var visibleDestinations: [SettingsDestination] {
-        SettingsCatalog.all.filter { destination in
-            hasMouseDevice || destination.id != "mouse"
-        }
-    }
-
-    var searchResults: [SettingsDestination] {
-        let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return visibleDestinations
-            .compactMap { destination -> (destination: SettingsDestination, relevance: Int)? in
-                guard let relevance = destination.relevanceScore(
-                    for: normalizedQuery,
-                    localizationManager: localizationManager
-                ) else {
-                    return nil
-                }
-
-                return (destination: destination, relevance: relevance)
-            }
-            .sorted { lhs, rhs in
-                if lhs.relevance != rhs.relevance {
-                    return lhs.relevance > rhs.relevance
-                }
-
-                if isFavorite(lhs.destination.id) != isFavorite(rhs.destination.id) {
-                    return isFavorite(lhs.destination.id)
-                }
-
-                return localizedTitle(for: lhs.destination) < localizedTitle(for: rhs.destination)
-            }
-            .map(\.destination)
-    }
-
-    var favoriteDestinations: [SettingsDestination] {
-        orderedDestinations(fromIDs: Array(favoriteIDs))
-            .sorted { localizedTitle(for: $0) < localizedTitle(for: $1) }
-    }
-
-    var groupedSearchResults: [CategorySection] {
-        let source = isSearching
-            ? searchResults
-            : visibleDestinations.sorted { lhs, rhs in
-                if isFavorite(lhs.id) != isFavorite(rhs.id) {
-                    return isFavorite(lhs.id)
-                }
-
-                return localizedTitle(for: lhs) < localizedTitle(for: rhs)
-            }
-
-        return SettingsCategory.allCases.compactMap { category in
-            let items = source.filter { $0.category == category }
-            guard !items.isEmpty else {
-                return nil
-            }
-
-            return CategorySection(category: category, items: items)
-        }
     }
 
     var pinnedClipboardItems: [ClipboardItem] {
@@ -185,89 +76,12 @@ final class MacBarStore: ObservableObject {
         filteredClipboardItems
     }
 
-    // MARK: - Todo Computed Properties
-
-    var isTodoSearching: Bool {
-        !todoSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var pinnedTodoItems: [TodoItem] {
-        filteredTodoItems.filter { pinnedTodoItemIDs.contains($0.id) }
-    }
-
-    var recentTodoItems: [TodoItem] {
-        filteredTodoItems.filter { !pinnedTodoItemIDs.contains($0.id) }
-    }
-
-    private var filteredTodoItems: [TodoItem] {
-        let query = todoSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return todoItems }
-        return todoItems.filter { item in
-            item.title.localizedCaseInsensitiveContains(query)
-                || (item.notes?.localizedCaseInsensitiveContains(query) ?? false)
-        }
-    }
-
-    func localizedTitle(for destination: SettingsDestination) -> String {
-        destination.localizedTitle(using: localizationManager)
-    }
-
-    func localizedSubtitle(for destination: SettingsDestination) -> String {
-        destination.localizedSubtitle(using: localizationManager)
-    }
-
-    func localizedTitle(for category: SettingsCategory) -> String {
-        category.localizedTitle(using: localizationManager)
-    }
-
     func localized(_ key: String) -> String {
         localizationManager.localized(key)
     }
 
     func localized(_ key: String, _ arguments: CVarArg...) -> String {
         localizationManager.localized(key, arguments: arguments)
-    }
-
-    var todoAIModelConfig: TodoAIModelConfig {
-        TodoAIModelConfig(source: todoAIModelSource, reference: todoAIModelReference)
-    }
-
-    func isFavorite(_ destinationID: String) -> Bool {
-        favoriteIDs.contains(destinationID)
-    }
-
-    func toggleFavorite(_ destinationID: String) {
-        if favoriteIDs.contains(destinationID) {
-            favoriteIDs.remove(destinationID)
-        } else {
-            favoriteIDs.insert(destinationID)
-        }
-
-        saveFavorites()
-    }
-
-    func setTodoAIModelSource(_ source: TodoAIModelSource) {
-        guard todoAIModelSource != source else {
-            return
-        }
-
-        todoAIModelSource = source
-        defaults.set(source.rawValue, forKey: Keys.todoAIModelSource)
-    }
-
-    func setTodoAIModelReference(_ reference: String) {
-        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = trimmed.isEmpty ? TodoAIModelConfig.defaultModelReference : trimmed
-        guard todoAIModelReference != normalized else {
-            return
-        }
-
-        todoAIModelReference = normalized
-        defaults.set(normalized, forKey: Keys.todoAIModelReference)
-    }
-
-    func resetTodoAIModelReference() {
-        setTodoAIModelReference(TodoAIModelConfig.defaultModelReference)
     }
 
     func isClipboardItemPinned(_ itemID: UUID) -> Bool {
@@ -292,7 +106,9 @@ final class MacBarStore: ObservableObject {
         }
 
         let item = clipboardHistory[index]
-        if let imageData = item.imageTIFFData {
+        if item.isFile {
+            clipboardMonitor.copyFilesToPasteboard(item.fileURLs)
+        } else if let imageData = item.imageTIFFData {
             clipboardMonitor.copyImageToPasteboard(imageData)
         } else {
             clipboardMonitor.copyTextToPasteboard(item.content)
@@ -304,6 +120,7 @@ final class MacBarStore: ObservableObject {
                 id: item.id,
                 content: item.content,
                 imageTIFFData: item.imageTIFFData,
+                fileURLStrings: item.fileURLStrings,
                 capturedAt: Date()
             ),
             at: 0
@@ -316,21 +133,28 @@ final class MacBarStore: ObservableObject {
         )
     }
 
+    func setClipboardOCRText(for id: UUID, text: String) {
+        clipboardOCRCache[id] = text
+    }
+
     func deleteClipboardItem(_ itemID: UUID) {
         clipboardHistory.removeAll { $0.id == itemID }
         pinnedClipboardItemIDs.remove(itemID)
+        clipboardOCRCache.removeValue(forKey: itemID)
         saveClipboardHistory()
         savePinnedClipboardIDs()
     }
 
     func clearUnpinnedClipboardItems() -> StoreFeedback? {
         let originalCount = clipboardHistory.count
+        let removedIDs = Set(clipboardHistory.filter { !pinnedClipboardItemIDs.contains($0.id) }.map(\.id))
         clipboardHistory.removeAll { !pinnedClipboardItemIDs.contains($0.id) }
 
         guard clipboardHistory.count != originalCount else {
             return nil
         }
 
+        removedIDs.forEach { clipboardOCRCache.removeValue(forKey: $0) }
         saveClipboardHistory()
         return makeFeedback(
             titleKey: "feedback.clipboard.title",
@@ -345,6 +169,7 @@ final class MacBarStore: ObservableObject {
 
         clipboardHistory.removeAll()
         pinnedClipboardItemIDs.removeAll()
+        clipboardOCRCache.removeAll()
         saveClipboardHistory()
         savePinnedClipboardIDs()
 
@@ -369,122 +194,6 @@ final class MacBarStore: ObservableObject {
         formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
         formatter.unitsStyle = .short
         return formatter.localizedString(for: item.capturedAt, relativeTo: Date())
-    }
-
-    // MARK: - Todo Methods
-
-    func isTodoItemPinned(_ itemID: UUID) -> Bool {
-        pinnedTodoItemIDs.contains(itemID)
-    }
-
-    func toggleTodoItemPinned(_ itemID: UUID) {
-        if pinnedTodoItemIDs.contains(itemID) {
-            pinnedTodoItemIDs.remove(itemID)
-        } else {
-            pinnedTodoItemIDs.insert(itemID)
-        }
-        normalizeTodoState()
-        saveTodoItems()
-        savePinnedTodoIDs()
-    }
-
-    @discardableResult
-    func addTodoItem(
-        title: String,
-        notes: String? = nil,
-        priority: TodoPriority? = nil,
-        dueDate: Date? = nil,
-        reminderDate: Date? = nil
-    ) -> StoreFeedback? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let normalizedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedReminderDate = normalizeReminderDate(reminderDate, dueDate: dueDate)
-
-        let item = TodoItem(
-            title: trimmed,
-            notes: normalizedNotes?.isEmpty == true ? nil : normalizedNotes,
-            priority: priority,
-            dueDate: dueDate,
-            reminderDate: normalizedReminderDate
-        )
-        todoItems.insert(item, at: 0)
-        saveTodoItems()
-        return makeFeedback(
-            titleKey: "feedback.todo.title",
-            messageKey: "feedback.todo.added"
-        )
-    }
-
-    func toggleTodoItemCompleted(_ itemID: UUID) {
-        guard let index = todoItems.firstIndex(where: { $0.id == itemID }) else { return }
-        todoItems[index].isCompleted.toggle()
-        saveTodoItems()
-    }
-
-    func updateTodoItem(
-        _ itemID: UUID,
-        title: String? = nil,
-        notes: String? = nil,
-        priority: TodoPriority?? = nil,
-        dueDate: Date?? = nil,
-        reminderDate: Date?? = nil
-    ) {
-        guard let index = todoItems.firstIndex(where: { $0.id == itemID }) else { return }
-        if let title { todoItems[index].title = title }
-        if let notes { todoItems[index].notes = notes }
-        if let priority { todoItems[index].priority = priority }
-        if let dueDate { todoItems[index].dueDate = dueDate }
-        if let reminderDate { todoItems[index].reminderDate = reminderDate }
-        todoItems[index].reminderDate = normalizeReminderDate(
-            todoItems[index].reminderDate,
-            dueDate: todoItems[index].dueDate
-        )
-        saveTodoItems()
-    }
-
-    func deleteTodoItem(_ itemID: UUID) {
-        todoItems.removeAll { $0.id == itemID }
-        pinnedTodoItemIDs.remove(itemID)
-        saveTodoItems()
-        savePinnedTodoIDs()
-    }
-
-    func clearCompletedTodoItems() -> StoreFeedback? {
-        let originalCount = todoItems.count
-        todoItems.removeAll { $0.isCompleted && !pinnedTodoItemIDs.contains($0.id) }
-        guard todoItems.count != originalCount else { return nil }
-        normalizeTodoState()
-        saveTodoItems()
-        savePinnedTodoIDs()
-        return makeFeedback(
-            titleKey: "feedback.todo.title",
-            messageKey: "feedback.todo.clearedCompleted"
-        )
-    }
-
-    func todoDueDateLabel(for item: TodoItem) -> String? {
-        guard let dueDate = item.dueDate else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: dueDate, relativeTo: Date())
-    }
-
-    func todoReminderDateLabel(for item: TodoItem) -> String? {
-        guard let reminderDate = item.reminderDate else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: reminderDate, relativeTo: Date())
-    }
-
-    func todoCreatedAtLabel(for item: TodoItem) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: item.createdAt, relativeTo: Date())
     }
 
     // MARK: - Configuration
@@ -526,30 +235,20 @@ final class MacBarStore: ObservableObject {
         }
 
         return clipboardHistory.filter { item in
+            if item.isFile {
+                let fileLabel = localized("ui.clipboard.item.file").localizedCaseInsensitiveContains(query)
+                let fileNameMatch = item.fileURLs.contains { $0.lastPathComponent.localizedCaseInsensitiveContains(query) }
+                return fileLabel || fileNameMatch
+            }
+
             if item.isImage {
-                return localized("ui.clipboard.item.image").localizedCaseInsensitiveContains(query)
+                let imageLabel = localized("ui.clipboard.item.image").localizedCaseInsensitiveContains(query)
+                let ocrMatch = clipboardOCRCache[item.id]?.localizedCaseInsensitiveContains(query) ?? false
+                return imageLabel || ocrMatch
             }
 
             return item.content.localizedCaseInsensitiveContains(query)
         }
-    }
-
-    private func orderedDestinations(fromIDs ids: [String]) -> [SettingsDestination] {
-        var ordered: [SettingsDestination] = []
-
-        for id in ids {
-            guard let destination = SettingsCatalog.byID[id] else {
-                continue
-            }
-
-            if !hasMouseDevice && destination.id == "mouse" {
-                continue
-            }
-
-            ordered.append(destination)
-        }
-
-        return ordered
     }
 
     private func configureClipboardMonitoring() {
@@ -576,6 +275,8 @@ final class MacBarStore: ObservableObject {
             captureClipboardText(rawText)
         case let .image(rawData):
             captureClipboardImage(rawData)
+        case let .files(urls):
+            captureClipboardFiles(urls)
         }
     }
 
@@ -589,7 +290,7 @@ final class MacBarStore: ObservableObject {
             return
         }
 
-        let captured = String(trimmed.prefix(maxClipboardCharacterCount))
+        let captured = trimmed
         if clipboardHistory.first?.content == captured {
             return
         }
@@ -617,7 +318,7 @@ final class MacBarStore: ObservableObject {
             return
         }
 
-        guard !rawData.isEmpty, rawData.count <= maxClipboardImageBytes else {
+        guard !rawData.isEmpty else {
             return
         }
 
@@ -648,38 +349,60 @@ final class MacBarStore: ObservableObject {
         savePinnedClipboardIDs()
     }
 
+    private func captureClipboardFiles(_ urls: [URL]) {
+        guard isClipboardMonitoringEnabled else {
+            return
+        }
+
+        guard !urls.isEmpty else {
+            return
+        }
+
+        let urlStrings = urls.map(\.absoluteString)
+
+        if clipboardHistory.first?.fileURLStrings == urlStrings {
+            return
+        }
+
+        if let existingIndex = clipboardHistory.firstIndex(where: { $0.fileURLStrings == urlStrings }) {
+            let existing = clipboardHistory.remove(at: existingIndex)
+            clipboardHistory.insert(
+                ClipboardItem(
+                    id: existing.id,
+                    content: "",
+                    fileURLStrings: urlStrings,
+                    capturedAt: Date()
+                ),
+                at: 0
+            )
+        } else {
+            clipboardHistory.insert(
+                ClipboardItem(content: "", fileURLStrings: urlStrings, capturedAt: Date()),
+                at: 0
+            )
+        }
+
+        normalizeClipboardState()
+        saveClipboardHistory()
+        savePinnedClipboardIDs()
+    }
+
     private func normalizeClipboardState() {
         let existingIDs = Set(clipboardHistory.map(\.id))
         pinnedClipboardItemIDs = pinnedClipboardItemIDs.intersection(existingIDs)
 
         var normalized: [ClipboardItem] = []
         var seenIDs: Set<UUID> = []
-        var unpinnedCount = 0
 
         for item in clipboardHistory {
             guard !seenIDs.contains(item.id) else {
                 continue
             }
             seenIDs.insert(item.id)
-
-            if pinnedClipboardItemIDs.contains(item.id) {
-                normalized.append(item)
-                continue
-            }
-
-            guard unpinnedCount < maxUnpinnedClipboardItems else {
-                continue
-            }
-
             normalized.append(item)
-            unpinnedCount += 1
         }
 
         clipboardHistory = normalized
-    }
-
-    private func saveFavorites() {
-        defaults.set(Array(favoriteIDs).sorted(), forKey: Keys.favorites)
     }
 
     private func saveClipboardHistory() {
@@ -710,82 +433,16 @@ final class MacBarStore: ObservableObject {
         return Set(rawIDs.compactMap(UUID.init(uuidString:)))
     }
 
-    private func saveTodoItems() {
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(todoItems) {
-            defaults.set(data, forKey: Keys.todoItemsData)
-        }
-    }
-
-    private func savePinnedTodoIDs() {
-        defaults.set(
-            Array(pinnedTodoItemIDs).map(\.uuidString).sorted(),
-            forKey: Keys.pinnedTodoIDs
-        )
-    }
-
-    private static func loadTodoItems(defaults: UserDefaults) -> [TodoItem] {
-        guard let data = defaults.data(forKey: Keys.todoItemsData) else { return [] }
-        return (try? JSONDecoder().decode([TodoItem].self, from: data)) ?? []
-    }
-
-    private static func loadPinnedTodoIDs(defaults: UserDefaults) -> Set<UUID> {
-        let rawIDs = defaults.stringArray(forKey: Keys.pinnedTodoIDs) ?? []
-        return Set(rawIDs.compactMap(UUID.init(uuidString:)))
-    }
-
-    private func normalizeTodoState() {
-        let existingIDs = Set(todoItems.map(\.id))
-        pinnedTodoItemIDs = pinnedTodoItemIDs.intersection(existingIDs)
-        todoItems = todoItems.map { item in
-            var mutable = item
-            mutable.reminderDate = normalizeReminderDate(mutable.reminderDate, dueDate: mutable.dueDate)
-            return mutable
-        }
-    }
-
-    private func normalizeTodoAIModelConfig() {
-        let normalized = todoAIModelReference.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.isEmpty {
-            todoAIModelReference = TodoAIModelConfig.defaultModelReference
-        } else {
-            todoAIModelReference = normalized
-        }
-
-        defaults.set(todoAIModelSource.rawValue, forKey: Keys.todoAIModelSource)
-        defaults.set(todoAIModelReference, forKey: Keys.todoAIModelReference)
-    }
-
-    private func normalizeReminderDate(_ reminderDate: Date?, dueDate: Date?) -> Date? {
-        guard let reminderDate else {
-            return nil
-        }
-
-        guard let dueDate else {
-            return reminderDate
-        }
-
-        return reminderDate > dueDate ? dueDate : reminderDate
-    }
-
     private func currentConfiguration() -> AppConfiguration {
         configurationManager.makeConfiguration(
-            favoriteIDs: favoriteIDs,
             selectedLanguageCode: localizationManager.selectedLanguageCode,
             clipboardItems: clipboardHistory,
             clipboardPinnedIDs: Array(pinnedClipboardItemIDs).map(\.uuidString).sorted(),
-            clipboardMonitoringEnabled: isClipboardMonitoringEnabled,
-            todoItems: todoItems,
-            todoPinnedIDs: Array(pinnedTodoItemIDs).map(\.uuidString).sorted(),
-            todoAIModelSource: todoAIModelSource.rawValue,
-            todoAIModelReference: todoAIModelReference
+            clipboardMonitoringEnabled: isClipboardMonitoringEnabled
         )
     }
 
     private func apply(configuration: AppConfiguration) {
-        let validDestinationIDs = Set(SettingsCatalog.byID.keys)
-        favoriteIDs = Set(configuration.favoriteIDs.filter { validDestinationIDs.contains($0) })
-        saveFavorites()
         localizationManager.selectLanguage(code: configuration.selectedLanguageCode)
 
         if let importedClipboardItems = configuration.clipboardItems {
@@ -805,28 +462,6 @@ final class MacBarStore: ObservableObject {
         saveClipboardHistory()
         savePinnedClipboardIDs()
         configureClipboardMonitoring()
-
-        if let importedTodoItems = configuration.todoItems {
-            todoItems = importedTodoItems
-        }
-        if let importedTodoPinnedIDs = configuration.todoPinnedIDs {
-            pinnedTodoItemIDs = Set(importedTodoPinnedIDs.compactMap(UUID.init(uuidString:)))
-        }
-
-        if let importedTodoAIModelSource = configuration.todoAIModelSource,
-           let source = TodoAIModelSource(rawValue: importedTodoAIModelSource) {
-            todoAIModelSource = source
-            defaults.set(source.rawValue, forKey: Keys.todoAIModelSource)
-        }
-
-        if let importedTodoAIModelReference = configuration.todoAIModelReference {
-            setTodoAIModelReference(importedTodoAIModelReference)
-        }
-
-        normalizeTodoState()
-        normalizeTodoAIModelConfig()
-        saveTodoItems()
-        savePinnedTodoIDs()
     }
 
     private func makeFeedback(

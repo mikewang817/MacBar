@@ -4,27 +4,17 @@ import UniformTypeIdentifiers
 
 final class AppConfigurationManager {
     func makeConfiguration(
-        favoriteIDs: Set<String>,
         selectedLanguageCode: String,
         clipboardItems: [ClipboardItem]? = nil,
         clipboardPinnedIDs: [String]? = nil,
-        clipboardMonitoringEnabled: Bool? = nil,
-        todoItems: [TodoItem]? = nil,
-        todoPinnedIDs: [String]? = nil,
-        todoAIModelSource: String? = nil,
-        todoAIModelReference: String? = nil
+        clipboardMonitoringEnabled: Bool? = nil
     ) -> AppConfiguration {
         AppConfiguration(
             schemaVersion: AppConfiguration.currentSchemaVersion,
-            favoriteIDs: Array(favoriteIDs).sorted(),
             selectedLanguageCode: selectedLanguageCode,
             clipboardItems: clipboardItems,
             clipboardPinnedIDs: clipboardPinnedIDs,
-            clipboardMonitoringEnabled: clipboardMonitoringEnabled,
-            todoItems: todoItems,
-            todoPinnedIDs: todoPinnedIDs,
-            todoAIModelSource: todoAIModelSource,
-            todoAIModelReference: todoAIModelReference
+            clipboardMonitoringEnabled: clipboardMonitoringEnabled
         )
     }
 

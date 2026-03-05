@@ -1,96 +1,106 @@
 # MacBar
 
-MacBar 是一个常驻在 macOS 菜单栏的快速入口应用，目标是让你在 1-2 次点击内进入常用系统设置页（如鼠标、触控板、Wi-Fi、隐私与安全性等）。
+A lightweight macOS menu bar clipboard manager. No cloud, no telemetry, no third-party dependencies — everything stays on your Mac.
 
-## 已完成功能（可深度使用版本）
+## Features
 
-- 菜单栏常驻：使用 `MenuBarExtra`，不占 Dock。
-- 常用设置直达：内置多组 System Settings 深链（新旧系统双候选）。
-- 搜索：支持中文/英文关键词检索。
-- 收藏：星标高频设置项，持久化保存。
-- 设备感知显示：未检测到鼠标设备时，自动隐藏“鼠标”入口。
-- 实时刷新：鼠标插拔后会自动刷新列表，无需重启 MacBar。
-- 多语言支持：默认跟随 macOS 系统语言，可在应用内切换语言。
-- 语言选项列表：仅展示已支持语言（不展示未支持语言）。
-- 使用人口阈值：内置“使用人口 >500万”语言资源（当前生成 164 个语言包，含方言回退映射）。
-- 资源生成脚本：`scripts/generate_localizations.py` 可重复生成本地化文件。
-- 失败回退：深链失效时自动回退到系统设置主页。
-- 深层跳转：为键盘/声音/网络/通知/隐私与安全性/日期与时间等提供子页直达。
-- 配置管理：支持导出 JSON 配置与导入配置。
-- 剪贴板历史：支持自动监听、搜索、复制回贴板、置顶、删除、清空未置顶与暂停/恢复监听。
-- 待办本地 AI 助手：可调用本地 MLX 小模型解析自然语言，自动提取标题、优先级、截止时间与提醒时间，并支持简短多轮澄清。
-- AI 模型来源可切换：支持 Hugging Face 仓库 ID/链接、本地模型目录、外部压缩包 URL（`.zip/.tar/.tar.gz`）。
+### Clipboard History
+MacBar silently monitors your clipboard and keeps a history of everything you copy — text, images, and files.
 
-## 体验设计
+- **Text** — full content preserved, no size limit
+- **Images** — TIFF data stored as-is, no size limit
+- **Files** — captures file copies from Finder, stores full paths
 
-- 入口路径短：每个设置项都带有明确描述和单独“打开”按钮。
-- 信息密度高但可读：按类别分组，优先展示收藏。
-- 结果反馈：深链回退/失败与配置操作会弹窗提示。
-- 国际化结构：文案全部通过 `Localizable.strings` 管理，便于继续扩展翻译。
+Unlimited history. Pin items to keep them safe from manual clearing.
 
-## 技术方案
+### Instant Search
+Type in the search bar to filter history in real time.
 
-- 语言与框架：Swift 6 + SwiftUI + AppKit + MLX Swift
-- 打包方式：Swift Package 可执行目标
-- 架构分层：
-  - `Data`：设置目录与深链候选
-  - `Models`：领域模型与分类
-  - `Services`：系统设置导航器、设备检测、语言管理
-- `Stores`：状态管理与本地持久化
-- `Views`：菜单栏窗口 UI
-- `Services/TodoIntentAIService.swift`：Swift 原生 MLX 待办意图解析服务
+- Searches text content
+- Searches OCR-extracted text from images
+- Searches file names and paths
 
-## 项目结构
+### Image OCR
+When you select an image item, MacBar automatically runs Apple's Vision framework to extract text. The result appears in the preview pane and is also indexed for search — no model download required.
 
-```
-MacBar/
-├── Package.swift
-├── README.md
-└── Sources/MacBar
-    ├── AppDelegate.swift
-    ├── MacBarApp.swift
-    ├── MacBar.swift
-    ├── Data/SettingsCatalog.swift
-    ├── Models/SettingsCategory.swift
-    ├── Models/AppConfiguration.swift
-    ├── Models/SettingsDestination.swift
-    ├── Resources/*.lproj/Localizable.strings
-    ├── Services/AppConfigurationManager.swift
-    ├── Services/LocalizationManager.swift
-    ├── Services/SettingsNavigator.swift
-    ├── Services/TodoIntentAIService.swift
-    ├── Stores/MacBarStore.swift
-    └── Views/MenuBarRootView.swift
-└── scripts/generate_localizations.py
-```
+### File Support
+Copy files in Finder as usual. MacBar captures the file references and lets you paste them back or reveal them in Finder from the preview pane.
 
-## 运行
+### Pin Items
+Pin frequently used items to keep them at the top, safe from automatic eviction.
 
-```bash
-cd /Users/patgo/app/MacBar
-swift build
-swift run MacBar
-```
+### 164 Languages
+Switch the UI language at any time from the bottom-left menu. The selection is saved across sessions.
 
-## 待办本地 AI（MLX）准备
+---
 
-- 现在已改为 Swift 原生调用 MLX，不再依赖 Python 或 `pip install mlx-lm`。
-- 默认内置模型目录：`Sources/MacBar/Resources/EmbeddedModels/Qwen3.5-0.8B-MLX-4bit`。
-- 只要该目录随 App 一起打包，终端用户首次使用也无需下载模型。
-- 由于 MLX Swift 依赖，项目最低系统版本为 macOS 14。
+## How to Use
 
-## 多语言资源再生成
+### Opening MacBar
+- **Click** the menu bar icon (⊟)
+- **Global hotkey**: `⇧⌘M` from any app
+
+### Copying an Item
+| Action | Result |
+|--------|--------|
+| Click the copy button on a row | Copy and move item to top |
+| Press `Enter` | Copy selected item |
+| `⌘1` – `⌘9` | Copy the 1st–9th recent item |
+| `⌘A` – `⌘Z` | Copy the 1st–26th pinned item |
+
+### Navigating
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move selection up / down |
+| Type | Filter items via search |
+| `Esc` | Clear search |
+
+### Managing Items
+| Action | How |
+|--------|-----|
+| Pin / unpin | Click the pin icon on a row |
+| Delete item | Select it, press `Delete` or `Backspace` (search must be empty) |
+| Reveal file in Finder | Select a file item → click **Reveal in Finder** in the preview pane |
+
+### Preview Pane
+Selecting any item opens a preview pane on the left:
+
+- **Text items** — full content with text selection enabled
+- **Image items** — full image preview + OCR text with a one-click copy button
+- **File items** — full path(s) with text selection + **Reveal in Finder** button
+
+Hover over a file row in the list to see a tooltip with all full paths.
+
+---
+
+## Building from Source
+
+MacBar uses Swift Package Manager — no Xcode project file needed.
 
 ```bash
-cd /Users/patgo/app/MacBar
-python3 -m venv .venv
-source .venv/bin/activate
-pip install langcodes language-data deep-translator Babel
-python scripts/generate_localizations.py
+git clone <repo>
+cd MacBar
+swift build          # compile
+swift run MacBar     # run (no GPU features)
+open Package.swift   # open in Xcode (recommended)
 ```
 
-## 下一步建议
+> **Note:** Run via Xcode for full functionality. `swift run` works for basic testing but Vision OCR requires an app bundle.
 
-1. 增加“开机启动”开关（`SMAppService`）。
-2. 增加用户自定义入口（自定义 URL Scheme / 脚本）。
-3. 增加诊断页：检测当前系统可用深链并自动修正。
+**Requirements:** macOS 14+, Xcode 15+
+
+---
+
+## Privacy
+
+- No network requests — ever
+- No analytics or crash reporting
+- All data stored locally in `UserDefaults` on your Mac
+- OCR runs entirely on-device via Apple's Vision framework
+- Clipboard monitoring can be paused at any time
+
+---
+
+## License
+
+MIT

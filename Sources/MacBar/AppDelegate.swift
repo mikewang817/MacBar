@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var hotkeyLocalMonitor: Any?
+    private var hotkeyGlobalMonitor: Any?
     private let panelDetachedTopGap: CGFloat = 8
     private let defaultPanelSize = NSSize(width: 460, height: 620)
     private var pendingPanelSize: NSSize?
@@ -21,10 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPanel()
+        setupGlobalHotkey()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         stopEventMonitors()
+        if let hotkeyLocalMonitor { NSEvent.removeMonitor(hotkeyLocalMonitor) }
+        if let hotkeyGlobalMonitor { NSEvent.removeMonitor(hotkeyGlobalMonitor) }
     }
 
     private func setupStatusItem() {
@@ -41,8 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rootView = MenuBarRootView(
             store: services.store,
             localizationManager: services.localizationManager,
-            navigator: services.navigator,
-            todoAIService: services.todoAIService,
+            ocrService: services.ocrService,
             onPreferredSizeChange: { [weak self] size in
                 self?.updatePanelContentSize(size)
             }
@@ -271,5 +275,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 adjustPanelWindowToVisibleFrame(panel)
             }
         }
+    }
+
+    // MARK: - Global Hotkey (Shift+Cmd+M)
+
+    private func setupGlobalHotkey() {
+        // Fires when another app is frontmost
+        hotkeyGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard Self.isHotkeyEvent(event) else { return }
+            Task { @MainActor [weak self] in
+                self?.togglePanel()
+            }
+        }
+
+        // Fires when the MacBar panel itself is key
+        hotkeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard Self.isHotkeyEvent(event) else { return event }
+            Task { @MainActor [weak self] in
+                self?.togglePanel()
+            }
+            return nil
+        }
+    }
+
+    private static func isHotkeyEvent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        return flags == [.command, .shift]
+            && event.charactersIgnoringModifiers?.lowercased() == "m"
     }
 }

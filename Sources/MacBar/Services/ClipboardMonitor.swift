@@ -4,6 +4,7 @@ import Foundation
 enum ClipboardCapture: Equatable {
     case text(String)
     case image(Data)
+    case files([URL])
 }
 
 @MainActor
@@ -61,6 +62,15 @@ final class ClipboardMonitor: ObservableObject {
         lastKnownChangeCount = pasteboard.changeCount
     }
 
+    func copyFilesToPasteboard(_ fileURLs: [URL]) {
+        pasteboard.clearContents()
+        pasteboard.writeObjects(fileURLs as [NSURL])
+        pasteboard.setString(markerValue, forType: markerType)
+        lastKnownChangeCount = pasteboard.changeCount
+    }
+
+    private var lastCapturedFileURLs: [URL] = []
+
     private func pollPasteboard() {
         let currentChangeCount = pasteboard.changeCount
         guard currentChangeCount != lastKnownChangeCount else {
@@ -70,6 +80,18 @@ final class ClipboardMonitor: ObservableObject {
         lastKnownChangeCount = currentChangeCount
 
         if pasteboard.string(forType: markerType) == markerValue {
+            return
+        }
+
+        // Check for file URLs first (file copies often include text representations)
+        if let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL], !urls.isEmpty {
+            if urls != lastCapturedFileURLs {
+                lastCapturedFileURLs = urls
+                latestCapturedItem = .files(urls)
+            }
             return
         }
 
