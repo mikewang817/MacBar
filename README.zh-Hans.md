@@ -2,9 +2,7 @@
 
 轻量级 macOS 菜单栏剪贴板管理器。无云端、无追踪、无第三方依赖——所有数据都留在你的 Mac 上。
 
-![MacBar 截图](docs/screenshot.png)
-
-![MacBar OCR 截图](docs/screenshot2.png)
+![MacBar 截图](docs/screenshot2.png)
 
 ## 功能特性
 

@@ -2,9 +2,7 @@
 
 A lightweight macOS menu bar clipboard manager. No cloud, no telemetry, no third-party dependencies — everything stays on your Mac.
 
-![MacBar Screenshot](docs/screenshot.png)
-
-![MacBar OCR Screenshot](docs/screenshot2.png)
+![MacBar Screenshot](docs/screenshot2.png)
 
 ## Features
 
