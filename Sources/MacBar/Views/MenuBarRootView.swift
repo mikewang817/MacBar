@@ -500,6 +500,26 @@ struct MenuBarRootView: View {
             return true
         }
 
+        // CMD+1-9 / CMD+A-Z: always handle regardless of search field focus.
+        // The search field is auto-focused whenever the panel is open, so these shortcuts
+        // must be checked before isAnyTextInputEditing() or they are never reached.
+        if flags == [.command],
+           let chars = event.charactersIgnoringModifiers?.lowercased(),
+           let first = chars.first {
+            // CMD+1-9: copy nth recent item
+            if let digit = Int(String(first)), (1...9).contains(digit) {
+                copyRecentClipboardItemByIndex(digit - 1)
+                return true
+            }
+            // CMD+A-Z: copy nth pinned item
+            if let letterIndex = Self.pinnedShortcutLetters.firstIndex(
+                of: Character(first.uppercased())
+            ) {
+                copyPinnedClipboardItemByIndex(letterIndex)
+                return true
+            }
+        }
+
         if flags.isEmpty, isDeleteKey, handleDeleteShortcutInActivePanel() {
             return true
         }
@@ -509,23 +529,6 @@ struct MenuBarRootView: View {
         }
 
         let isEditingTextInput = isEditingTextInput(for: event)
-
-        if !isEditingTextInput, flags == [.command],
-           let chars = event.charactersIgnoringModifiers?.lowercased(),
-           let first = chars.first {
-            // CMD+1-9 for recent (unpinned) items
-            if let digit = Int(String(first)), (1...9).contains(digit) {
-                copyRecentClipboardItemByIndex(digit - 1)
-                return true
-            }
-            // CMD+A-Z for pinned items
-            if let letterIndex = Self.pinnedShortcutLetters.firstIndex(
-                of: Character(first.uppercased())
-            ) {
-                copyPinnedClipboardItemByIndex(letterIndex)
-                return true
-            }
-        }
 
         guard flags.isEmpty else {
             return false
