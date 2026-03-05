@@ -24,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPanel()
         setupGlobalHotkey()
+
+        Task {
+            try? await Task.sleep(for: .seconds(5))
+            await AppServices.shared.store.checkForUpdates()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

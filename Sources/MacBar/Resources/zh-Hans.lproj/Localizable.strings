@@ -20,6 +20,8 @@
 "ui.clipboard.button.revealInFinder" = "在 Finder 中显示";
 "ui.ocr.processing" = "识别中...";
 "ui.ocr.label" = "OCR";
+"ui.update.available" = "更新 %@ 可用";
+"ui.update.installing" = "安装中...";
 "ui.button.quit" = "退出 MacBar";
 "ui.language.menu" = "语言";
 "ui.language.followSystem" = "跟随系统（%@）";

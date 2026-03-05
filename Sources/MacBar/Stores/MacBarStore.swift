@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -14,11 +15,14 @@ final class MacBarStore: ObservableObject {
     @Published private(set) var pinnedClipboardItemIDs: Set<UUID>
     @Published private(set) var isClipboardMonitoringEnabled: Bool
     @Published private(set) var clipboardOCRCache: [UUID: String] = [:]
+    @Published private(set) var pendingUpdateRelease: GitHubRelease? = nil
+    @Published private(set) var isUpdateInstalling: Bool = false
 
     private let defaults: UserDefaults
     private let localizationManager: LocalizationManager
     private let configurationManager: AppConfigurationManager
     private let clipboardMonitor: ClipboardMonitor
+    private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
 
     private enum Keys {
@@ -475,6 +479,36 @@ final class MacBarStore: ObservableObject {
                 ? localized(messageKey)
                 : localizationManager.localized(messageKey, arguments: arguments)
         )
+    }
+
+    // MARK: - Update
+
+    func checkForUpdates() async {
+        guard let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
+            return
+        }
+        do {
+            let release = try await updateService.fetchLatestRelease()
+            if updateService.isNewerVersion(release.versionNumber, than: currentVersion) {
+                pendingUpdateRelease = release
+            }
+        } catch {
+            // Silent fail — update check is best-effort
+        }
+    }
+
+    func installUpdate() async {
+        guard let release = pendingUpdateRelease else { return }
+        isUpdateInstalling = true
+        do {
+            try await updateService.downloadAndInstall(release: release)
+        } catch {
+            isUpdateInstalling = false
+            // Fall back to opening the releases page
+            if let url = URL(string: "https://github.com/mikewang817/MacBar/releases/latest") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     private func feedbackForConfigurationError(_ error: Error) -> StoreFeedback {

@@ -657,6 +657,28 @@ struct MenuBarRootView: View {
 
             Spacer()
 
+            if store.isUpdateInstalling {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini)
+                    Text(store.localized("ui.update.installing"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let release = store.pendingUpdateRelease {
+                Button {
+                    Task { await store.installUpdate() }
+                } label: {
+                    Label(
+                        store.localized("ui.update.available", release.versionNumber),
+                        systemImage: "arrow.down.circle.fill"
+                    )
+                    .font(.caption)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.mini)
+                .tint(.green)
+            }
+
             Button(store.localized("ui.button.quit")) {
                 NSApplication.shared.terminate(nil)
             }

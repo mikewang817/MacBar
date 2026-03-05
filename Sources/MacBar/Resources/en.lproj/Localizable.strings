@@ -20,6 +20,8 @@
 "ui.clipboard.button.revealInFinder" = "Reveal in Finder";
 "ui.ocr.processing" = "Recognizing...";
 "ui.ocr.label" = "OCR";
+"ui.update.available" = "Update %@ Available";
+"ui.update.installing" = "Installing...";
 "ui.button.quit" = "Quit MacBar";
 "ui.language.menu" = "Language";
 "ui.language.followSystem" = "Follow System (%@)";
