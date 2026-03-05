@@ -77,6 +77,22 @@ Hover over a file row in the list to see a tooltip with all full paths.
 
 ---
 
+## Installation
+
+1. Download `MacBar-v1.0.0.zip` from [Releases](https://github.com/mikewang817/MacBar/releases)
+2. Unzip and move `MacBar.app` to your `/Applications` folder
+3. **First launch** — right-click `MacBar.app` → **Open** → **Open** (unsigned build, Gatekeeper will prompt once)
+
+   Or run in Terminal to skip the prompt permanently:
+   ```bash
+   xattr -rd com.apple.quarantine /Applications/MacBar.app
+   ```
+4. MacBar appears in your menu bar as ⊟ — no Dock icon
+
+**Requirements:** macOS 14 (Sonoma) or later, Apple Silicon
+
+---
+
 ## Building from Source
 
 MacBar uses Swift Package Manager — no Xcode project file needed.
