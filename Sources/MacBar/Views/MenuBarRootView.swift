@@ -222,7 +222,7 @@ struct MenuBarRootView: View {
                 Text("Enter → \(store.localized("ui.clipboard.button.copy"))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Delete → \(store.localized("ui.clipboard.help.delete"))")
+                Text("⌘Delete → \(store.localized("ui.clipboard.help.delete"))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -493,6 +493,12 @@ struct MenuBarRootView: View {
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
+
+        // ⌘+Delete / ⌘+Backspace: always delete selected item regardless of search text
+        if flags == [.command], isDeleteKey {
+            deleteSelectedClipboardItem()
+            return true
+        }
 
         if flags.isEmpty, isDeleteKey, handleDeleteShortcutInActivePanel() {
             return true

@@ -63,7 +63,7 @@ Switch the UI language at any time from the bottom-left menu. The selection is s
 | Action | How |
 |--------|-----|
 | Pin / unpin | Click the pin icon on a row |
-| Delete item | Select it, press `Delete` or `Backspace` (search must be empty) |
+| Delete item | Select it, press `⌘Delete` (works even when search has text) |
 | Reveal file in Finder | Select a file item → click **Reveal in Finder** in the preview pane |
 
 ### Preview Pane
