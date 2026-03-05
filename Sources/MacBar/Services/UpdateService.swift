@@ -109,10 +109,13 @@ final class UpdateService: Sendable {
                 throw UpdateError.appNotFoundInZip
             }
 
+            // Remove the old bundle first; copying onto an existing directory would
+            // place the new .app *inside* the old one instead of replacing it.
             let script = """
             #!/bin/bash
             sleep 2
-            /bin/cp -Rf "\(newApp.path)" "\(installTarget)"
+            /bin/rm -rf "\(installTarget)"
+            /bin/cp -Rf "\(newApp.path)" "/Applications/"
             /usr/bin/open "\(installTarget)"
             /bin/rm -rf "\(tempDir.path)"
             """
