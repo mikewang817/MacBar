@@ -8,3 +8,4 @@ DerivedData/
 .netrc
 .venv/
 scripts/.translation_cache.json
+Sources/MacBar/Resources/EmbeddedModels/
