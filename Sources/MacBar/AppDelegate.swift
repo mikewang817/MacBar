@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 
 private final class MacBarPanel: NSPanel {
@@ -285,7 +286,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Global Hotkey (Shift+Cmd+M)
 
     private func setupGlobalHotkey() {
-        // Fires when another app is frontmost
+        // Global keyboard monitoring requires Accessibility permission on macOS 12+.
+        // Prompt once if not yet granted; without it the global monitor silently does nothing.
+        if !AXIsProcessTrusted() {
+            let key = "AXTrustedCheckOptionPrompt" as CFString
+            let opts = [key: true] as CFDictionary
+            AXIsProcessTrustedWithOptions(opts)
+        }
+
+        // Fires when another app is frontmost (requires Accessibility permission)
         hotkeyGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard Self.isHotkeyEvent(event) else { return }
             Task { @MainActor [weak self] in
@@ -293,7 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Fires when the MacBar panel itself is key
+        // Fires when the MacBar panel itself is key (no special permission needed)
         hotkeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard Self.isHotkeyEvent(event) else { return event }
             Task { @MainActor [weak self] in
@@ -305,7 +314,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static func isHotkeyEvent(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        return flags == [.command, .shift]
-            && event.charactersIgnoringModifiers?.lowercased() == "m"
+        // Use keyCode 46 (kVK_ANSI_M) — physical key position, independent of keyboard
+        // layout and input method (e.g. Chinese IME returning nil for charactersIgnoringModifiers)
+        return flags == [.command, .shift] && event.keyCode == 46
     }
 }
