@@ -4,6 +4,8 @@ A lightweight macOS menu bar clipboard manager. No cloud, no telemetry, no third
 
 ![MacBar Screenshot](docs/screenshot.png)
 
+![MacBar OCR Screenshot](docs/screenshot2.png)
+
 ## Features
 
 ### Clipboard History
