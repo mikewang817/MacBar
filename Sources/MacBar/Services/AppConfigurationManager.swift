@@ -3,11 +3,18 @@ import Foundation
 import UniformTypeIdentifiers
 
 final class AppConfigurationManager {
-    func makeConfiguration(favoriteIDs: Set<String>, selectedLanguageCode: String) -> AppConfiguration {
+    func makeConfiguration(
+        selectedLanguageCode: String,
+        clipboardItems: [ClipboardItem]? = nil,
+        clipboardPinnedIDs: [String]? = nil,
+        clipboardMonitoringEnabled: Bool? = nil
+    ) -> AppConfiguration {
         AppConfiguration(
             schemaVersion: AppConfiguration.currentSchemaVersion,
-            favoriteIDs: Array(favoriteIDs).sorted(),
-            selectedLanguageCode: selectedLanguageCode
+            selectedLanguageCode: selectedLanguageCode,
+            clipboardItems: clipboardItems,
+            clipboardPinnedIDs: clipboardPinnedIDs,
+            clipboardMonitoringEnabled: clipboardMonitoringEnabled
         )
     }
 
@@ -72,7 +79,8 @@ final class AppConfigurationManager {
             throw AppConfigurationError.decodeFailed
         }
 
-        guard configuration.schemaVersion == AppConfiguration.currentSchemaVersion else {
+        guard configuration.schemaVersion > 0,
+              configuration.schemaVersion <= AppConfiguration.currentSchemaVersion else {
             throw AppConfigurationError.invalidPayload
         }
 

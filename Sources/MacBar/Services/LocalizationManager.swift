@@ -19,28 +19,20 @@ struct LanguageOption: Identifiable, Hashable {
 
 final class LocalizationManager: ObservableObject {
     static let systemLanguageCode = "system"
-    private static let allowedLanguageCodes = Set(
-        SystemSettingsTerminology.supportedHighPopulationLanguageCodes.map(LocalizationManager.normalizeLanguageCode)
-    )
 
     @Published private(set) var selectedLanguageCode: String
     @Published private(set) var effectiveLanguageIdentifier: String = "en"
     @Published private(set) var languageOptions: [LanguageOption] = []
 
     private let defaults: UserDefaults
-    private let systemSettingsTerminology: SystemSettingsTerminology
     private var cancellables: Set<AnyCancellable> = []
 
     private enum Keys {
         static let selectedLanguageCode = "macbar.selectedLanguageCode"
     }
 
-    init(
-        defaults: UserDefaults = .standard,
-        systemSettingsTerminology: SystemSettingsTerminology = SystemSettingsTerminology()
-    ) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.systemSettingsTerminology = systemSettingsTerminology
         self.selectedLanguageCode = defaults.string(forKey: Keys.selectedLanguageCode) ?? Self.systemLanguageCode
 
         refreshLanguageOptions()
@@ -70,13 +62,6 @@ final class LocalizationManager: ObservableObject {
     }
 
     func localized(_ key: String) -> String {
-        if let systemValue = systemSettingsTerminology.localizedValue(
-            for: key,
-            languageIdentifier: effectiveLanguageIdentifier
-        ) {
-            return systemValue
-        }
-
         let localizedBundle = bundle(for: effectiveLanguageIdentifier)
         let resolved = localizedBundle.localizedString(forKey: key, value: nil, table: nil)
 
@@ -143,10 +128,7 @@ final class LocalizationManager: ObservableObject {
     }
 
     private func availableLocalizationCodes() -> [String] {
-        let available = Bundle.module.localizations
-            .filter { $0.lowercased() != "base" }
-        let filtered = available.filter { Self.allowedLanguageCodes.contains(Self.normalizeLanguageCode($0)) }
-        return filtered.isEmpty ? available : filtered
+        Bundle.module.localizations.filter { $0.lowercased() != "base" }
     }
 
     private func preferredSystemLanguageIdentifier() -> String {
@@ -235,18 +217,5 @@ final class LocalizationManager: ObservableObject {
         }
 
         return .module
-    }
-
-    private static func normalizeLanguageCode(_ code: String) -> String {
-        let normalized = code.replacingOccurrences(of: "_", with: "-").lowercased()
-
-        switch normalized {
-        case "zh-hans":
-            return "zh-Hans"
-        case "zh-hant":
-            return "zh-Hant"
-        default:
-            return normalized
-        }
     }
 }

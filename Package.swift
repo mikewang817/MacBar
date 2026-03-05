@@ -6,7 +6,7 @@ let package = Package(
     name: "MacBar",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .executable(
