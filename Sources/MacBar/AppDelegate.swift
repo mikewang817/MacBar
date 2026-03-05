@@ -1,6 +1,10 @@
 import AppKit
-import ApplicationServices
+import Carbon.HIToolbox
 import SwiftUI
+
+// File-level weak reference used by the Carbon C callback (which cannot capture Swift context).
+// nonisolated(unsafe) opts out of Swift 6 concurrency checks for this global.
+private nonisolated(unsafe) weak var _hotKeyDelegate: AppDelegate?
 
 private final class MacBarPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -14,7 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var hotkeyLocalMonitor: Any?
-    private var hotkeyGlobalMonitor: Any?
+    private var carbonHotKeyRef: EventHotKeyRef?
+    private var carbonEventHandlerRef: EventHandlerRef?
     private let panelDetachedTopGap: CGFloat = 8
     private let defaultPanelSize = NSSize(width: 460, height: 620)
     private var pendingPanelSize: NSSize?
@@ -35,7 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         stopEventMonitors()
         if let hotkeyLocalMonitor { NSEvent.removeMonitor(hotkeyLocalMonitor) }
-        if let hotkeyGlobalMonitor { NSEvent.removeMonitor(hotkeyGlobalMonitor) }
+        if let carbonHotKeyRef { UnregisterEventHotKey(carbonHotKeyRef) }
+        if let carbonEventHandlerRef { RemoveEventHandler(carbonEventHandlerRef) }
     }
 
     private func setupStatusItem() {
@@ -286,36 +292,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Global Hotkey (Shift+Cmd+M)
 
     private func setupGlobalHotkey() {
-        // Global keyboard monitoring requires Accessibility permission on macOS 12+.
-        // Prompt once if not yet granted; without it the global monitor silently does nothing.
-        if !AXIsProcessTrusted() {
-            let key = "AXTrustedCheckOptionPrompt" as CFString
-            let opts = [key: true] as CFDictionary
-            AXIsProcessTrustedWithOptions(opts)
-        }
+        _hotKeyDelegate = self
 
-        // Fires when another app is frontmost (requires Accessibility permission)
-        hotkeyGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard Self.isHotkeyEvent(event) else { return }
-            Task { @MainActor [weak self] in
-                self?.togglePanel()
-            }
-        }
+        // Carbon RegisterEventHotKey intercepts ⇧⌘M system-wide with NO special permissions
+        // (no Accessibility, no Input Monitoring). This is the standard approach used by
+        // Alfred, Raycast, and other launcher apps.
+        var eventSpec = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            { (_, _, _) -> OSStatus in
+                // C callback: runs on the main thread (Carbon event loop).
+                // Dispatch to MainActor to call @MainActor-isolated togglePanel().
+                DispatchQueue.main.async { _hotKeyDelegate?.togglePanel() }
+                return noErr
+            },
+            1,
+            &eventSpec,
+            nil,
+            &carbonEventHandlerRef
+        )
 
-        // Fires when the MacBar panel itself is key (no special permission needed)
+        var hotKeyID = EventHotKeyID(signature: OSType(0x4D425200), id: 1) // 'MBR\0'
+        RegisterEventHotKey(
+            UInt32(kVK_ANSI_M),          // physical M key
+            UInt32(cmdKey | shiftKey),    // ⇧⌘
+            hotKeyID,
+            GetApplicationEventTarget(),
+            OptionBits(0),
+            &carbonHotKeyRef
+        )
+
+        // Local NSEvent monitor: catches ⇧⌘M when MacBar's panel is already the key window,
+        // since Carbon may not fire for events originating in our own process on some OS versions.
         hotkeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard Self.isHotkeyEvent(event) else { return event }
-            Task { @MainActor [weak self] in
-                self?.togglePanel()
-            }
+            Task { @MainActor [weak self] in self?.togglePanel() }
             return nil
         }
     }
 
     private static func isHotkeyEvent(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        // Use keyCode 46 (kVK_ANSI_M) — physical key position, independent of keyboard
-        // layout and input method (e.g. Chinese IME returning nil for charactersIgnoringModifiers)
-        return flags == [.command, .shift] && event.keyCode == 46
+        return flags == [.command, .shift] && event.keyCode == UInt16(kVK_ANSI_M)
     }
 }
