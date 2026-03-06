@@ -25,6 +25,7 @@ MacBar/
 ├── Sources/MacBar/
 │   ├── MacBarApp.swift               # @main，空 MenuBarExtra
 │   ├── AppDelegate.swift             # panel 管理、窗口定位、全局热键、事件监听
+│   ├── AppVersion.swift              # 应用版本入口（Bundle + fallback）
 │   ├── Models/
 │   │   ├── AppPanel.swift           # 枚举: .clipboard（唯一面板）
 │   │   └── ClipboardItem.swift      # 剪贴板历史条目（文本/图片/文件）
@@ -154,6 +155,10 @@ enum ClipboardCapture: Equatable {
 - `⇧⌘M`: 全局 toggle 面板（在 AppDelegate 注册）
 - 复制任意条目（包括 OCR 文本 Copy）后，默认关闭面板并尝试回到原应用
 
+**快捷键提示文案:**
+- 底部 `Enter` / `Delete` 提示不再依赖固定整句翻译，而是由 `MacBarStore.clipboardCopyShortcutHint()` 和 `clipboardDeleteShortcutHint()` 根据当前语言习惯动态生成
+- 中文系语言优先显示 `Enter`、`CMD + 删除键 / 刪除鍵` 这类更符合本地用户心智的表达
+
 **handleKeyDown 优先级顺序（重要）:**
 1. `⌘Delete` → 删除（无论搜索框状态）
 2. `⌘1–9` / `⌘A–Z` → 快捷复制（必须在 `isAnyTextInputEditing()` 检查之前）
@@ -259,6 +264,7 @@ python scripts/generate_localizations.py
 - 点击按钮调用 `store.installUpdate()` → `UpdateService.downloadAndInstall()`
 - 安装脚本：`sleep 2` → `rm -rf /Applications/MacBar.app` → `cp -Rf` → `open` → 退出当前进程
 - **关键**：必须先 `rm -rf` 再 `cp`，直接 `cp -Rf src /Applications/MacBar.app` 会将新 app 放入旧目录内
+- 当前版本号读取统一走 `AppVersion.swift`；SwiftPM 运行时若 `Bundle.main` 读不到自定义 `Info.plist`，会回退到源码中的版本号
 
 **发布 Release 流程**:
 ```bash

@@ -52,6 +52,8 @@ docs/
   剪贴板轮询与写回逻辑
 - `Sources/MacBar/Services/OCRService.swift`
   图片 OCR，基于 Vision，完全本地执行
+- `Sources/MacBar/AppVersion.swift`
+  统一版本号入口；优先读 `Bundle.main`，读不到时回退到源码里的版本号
 - `Sources/MacBar/Services/LocalizationManager.swift`
   语言选择与本地化解析
 - `Sources/MacBar/Services/UpdateService.swift`
@@ -70,12 +72,14 @@ docs/
 - 搜索不仅搜文本，也搜图片 OCR 文本、文件名和文件完整路径；相关修改要覆盖这三类条目。
 - 复制任意条目后默认会关闭面板，并尽量回到打开前的前台应用；修改复制流时要同时检查 `MenuBarRootView` 的关闭回调和 `AppDelegate` 的前台应用恢复逻辑。
 - `Esc` 行为是两段式：搜索框有内容时清空搜索，否则关闭面板；改动搜索交互时不要破坏这条约定。
+- 更新检查不是只在启动时触发：启动后会强制检查一次，之后每次打开面板还会做一次 10 分钟节流检查，避免长时间不重启时错过新 release。
 - 更新服务会访问 GitHub Releases；如果修改 README 或隐私描述，需要与当前实现保持一致。
 
 ## 本地化规则
 
 - 用户可见字符串不要直接硬编码，除应用名 `MacBar` 和系统按钮 `OK` 外，统一走 `store.localized(...)` 或 `localizationManager.localized(...)`。
 - 快捷键、按键名、菜单动作等文案要符合目标语言的真实使用习惯，不要机械直译；例如中文场景优先写 `Enter`、`CMD + 删除键`，而不是把按键名称字面翻成“输入”“命令删除”。
+- 快捷键提示目前由 `MacBarStore` 按语言风格动态生成；如果调整这类文案，优先改生成逻辑，不要只改某一种语言的整句翻译。
 - 新增文案时，至少同步更新：
   - `Sources/MacBar/Resources/en.lproj/Localizable.strings`
   - `Sources/MacBar/Resources/zh-Hans.lproj/Localizable.strings`
@@ -87,6 +91,7 @@ docs/
 - 做功能变更时，先判断影响的是 `Store`、`Service` 还是 `View`，不要把业务逻辑直接塞进 SwiftUI 视图层。
 - 涉及文件条目展示时，注意当前 UI 约定是“文件名 + 目录路径”双行展示，悬停显示完整路径。
 - 涉及文本条目展示时，注意当前列表约定是“首行标题 + 次行摘要/相对时间”双行展示。
+- 涉及底部快捷键提示时，注意当前不是直接显示本地化整句，而是由 `MacBarStore.clipboardCopyShortcutHint()` / `clipboardDeleteShortcutHint()` 根据语言习惯生成。
 - 涉及预览面板尺寸时，要同步考虑 `MenuBarRootView.preferredPanelSize` 和 `AppDelegate` 的 panel size 更新逻辑。
 - 涉及资源或本地化包时，确认 `Package.swift` 的 `resources: [.process("Resources")]` 仍然满足需求。
 - 当前版本没有配置导入/导出功能，除非用户明确要求，否则不要重新引入相关入口或模型。
