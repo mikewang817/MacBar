@@ -91,19 +91,78 @@ docs/
 - 当前版本没有配置导入/导出功能，除非用户明确要求，否则不要重新引入相关入口或模型。
 - 不要引入网络库、数据库、统计 SDK 或其他第三方依赖，除非用户明确要求并接受架构变化。
 
-## 小红书内容管理
+## 发布 Release 流程
 
-- `docs/xiaohongshu.md` 是当前待发布的小红书草稿，默认始终保持为最新版本。
-- 小红书历史和选题统一放在 `docs/xiaohongshu/`：
-  - `README.md`：内容台账和工作流
-  - `TEMPLATE.md`：新稿模板
-  - `ideas.md`：选题池
-  - `drafts/`：每篇草稿归档
-  - `published/`：已发布定稿
-- 新写一篇时，先判断是不是上一篇的续篇；如果是续篇，正文要承接上一篇，不要重新从零介绍 MacBar。
-- 小红书文案默认站在用户视角，重点讲产品价值、真实场景和体验变化；技术实现只保留用户能感知到的部分。
-- 小红书文案文件虽然使用 `.md` 扩展名存储，但正文格式按纯文本写，不使用 Markdown 标题、项目列表、加粗、引用或链接语法，避免发布前再次手动清洗。
-- 每次新增或重写小红书时，除了更新 `docs/xiaohongshu.md`，也要同步把当前版本归档到 `docs/xiaohongshu/drafts/`，并维护 `docs/xiaohongshu/README.md` 里的内容台账。
+每次发布新版本按以下步骤执行：
+
+### 1. 修改版本号
+
+编辑 `Sources/MacBar/Info.plist`，同时递增两个字段：
+- `CFBundleVersion`：整数，每次 +1
+- `CFBundleShortVersionString`：语义版本，如 `1.0.8`
+
+提交并推送：
+```bash
+git add Sources/MacBar/Info.plist
+git commit -m "chore: bump version to X.X.X"
+git push
+```
+
+### 2. 构建 Archive
+
+```bash
+xcodebuild archive \
+  -scheme MacBar \
+  -configuration Release \
+  -destination "generic/platform=macOS" \
+  -archivePath /tmp/MacBar.xcarchive \
+  SKIP_INSTALL=NO
+```
+
+### 3. 组装 App Bundle
+
+```bash
+VERSION="X.X.X"
+APP_DIR="/tmp/MacBarBuild/MacBar.app/Contents"
+DERIVED=$(ls -d ~/Library/Developer/Xcode/DerivedData/MacBar-*/Build/Intermediates.noindex/ArchiveIntermediates/MacBar/BuildProductsPath/Release | head -1)
+
+rm -rf /tmp/MacBarBuild && mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
+
+# 可执行文件
+cp /tmp/MacBar.xcarchive/Products/usr/local/bin/MacBar "$APP_DIR/MacOS/MacBar"
+
+# Info.plist
+cp Sources/MacBar/Info.plist "$APP_DIR/Info.plist"
+
+# 编译图标和资源（生成 Assets.car）
+xcrun actool \
+  --compile "$APP_DIR/Resources" \
+  --platform macosx \
+  --minimum-deployment-target 14.0 \
+  --app-icon AppIcon \
+  --output-partial-info-plist /tmp/actool_partial.plist \
+  Sources/MacBar/Resources/Assets.xcassets
+
+# SPM 资源包（本地化字符串等，必须包含）
+ditto "$DERIVED/MacBar_MacBar.bundle" "$APP_DIR/Resources/MacBar_MacBar.bundle"
+
+# 签名
+codesign --force --deep --sign - /tmp/MacBarBuild/MacBar.app
+```
+
+> **注意**：`MacBar_MacBar.bundle` 必须复制，缺失会导致所有本地化字符串显示为 key。
+
+### 4. 打包并发布到 GitHub
+
+```bash
+cd /tmp/MacBarBuild
+ditto -c -k --keepParent MacBar.app "MacBar-v${VERSION}.zip"
+gh release create "v${VERSION}" "MacBar-v${VERSION}.zip" \
+  --title "MacBar v${VERSION}" \
+  --notes "## v${VERSION}
+
+- ..."
+```
 
 ## 交付前检查
 
