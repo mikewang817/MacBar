@@ -799,6 +799,10 @@ struct MenuBarRootView: View {
                     .tint(.green)
                 }
 
+                Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
                 Button(store.localized("ui.button.quit")) {
                     NSApplication.shared.terminate(nil)
                 }
