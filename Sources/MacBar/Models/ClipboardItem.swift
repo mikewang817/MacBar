@@ -70,6 +70,29 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
         return compact
     }
 
+    var previewSubtitle: String {
+        if isImage || isFile {
+            return ""
+        }
+
+        let lines = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if lines.count > 1 {
+            let remainingText = lines.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remainingText.isEmpty {
+                return remainingText
+            }
+        }
+
+        let compact = previewBody
+        return compact == previewTitle ? "" : compact
+    }
+
     var characterCount: Int {
         if isImage {
             return 0

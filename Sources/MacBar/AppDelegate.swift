@@ -15,6 +15,7 @@ private final class MacBarPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var previousActiveApplication: NSRunningApplication?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var hotkeyLocalMonitor: Any?
@@ -61,6 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ocrService: services.ocrService,
             onPreferredSizeChange: { [weak self] size in
                 self?.updatePanelContentSize(size)
+            },
+            onRequestClose: { [weak self] restorePreviousApp in
+                self?.closePanel(restorePreviousApp: restorePreviousApp)
             }
         )
 
@@ -101,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        rememberPreviousActiveApplication()
         positionPanel(relativeTo: button, panel: panel)
         statusItem?.button?.isHighlighted = true
         startEventMonitors()
@@ -112,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func closePanel() {
+    private func closePanel(restorePreviousApp: Bool = false) {
         guard let panel, panel.isVisible else {
             return
         }
@@ -120,6 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderOut(nil)
         statusItem?.button?.isHighlighted = false
         stopEventMonitors()
+
+        let applicationToRestore = previousActiveApplication
+        previousActiveApplication = nil
+
+        if restorePreviousApp {
+            applicationToRestore?.activate(options: [])
+        }
     }
 
     private func startEventMonitors() {
@@ -206,6 +218,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         queuePanelContentSizeUpdate(clampedSize)
+    }
+
+    private func rememberPreviousActiveApplication() {
+        let currentBundleIdentifier = Bundle.main.bundleIdentifier
+        guard let frontmostApplication = NSWorkspace.shared.frontmostApplication,
+              frontmostApplication.bundleIdentifier != currentBundleIdentifier else {
+            previousActiveApplication = nil
+            return
+        }
+
+        previousActiveApplication = frontmostApplication
     }
 
     private func positionPanel(relativeTo button: NSStatusBarButton, panel: NSPanel) {
@@ -315,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             &carbonEventHandlerRef
         )
 
-        var hotKeyID = EventHotKeyID(signature: OSType(0x4D425200), id: 1) // 'MBR\0'
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4D425200), id: 1) // 'MBR\0'
         RegisterEventHotKey(
             UInt32(kVK_ANSI_M),          // physical M key
             UInt32(cmdKey | shiftKey),    // ⇧⌘

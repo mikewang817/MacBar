@@ -6,10 +6,11 @@ struct MenuBarRootView: View {
     @ObservedObject var localizationManager: LocalizationManager
     let ocrService: OCRService
     let onPreferredSizeChange: ((CGSize) -> Void)?
+    let onRequestClose: ((Bool) -> Void)?
     @State private var focusedField: Bool = false
-    @State private var alertTitle: String = ""
-    @State private var alertMessage: String = ""
-    @State private var isFeedbackAlertPresented: Bool = false
+    @State private var transientFeedback: StoreFeedback?
+    @State private var feedbackDismissTask: Task<Void, Never>?
+    @State private var pendingDestructiveAction: ClipboardDestructiveAction?
     @State private var selectedClipboardItemID: UUID?
     @State private var isClipboardOCRProcessing: Bool = false
     @State private var keyDownMonitor: Any?
@@ -32,6 +33,38 @@ struct MenuBarRootView: View {
     private var selectedClipboardItem: ClipboardItem? {
         guard let selectedClipboardItemID else { return nil }
         return clipboardNavigationItems.first { $0.id == selectedClipboardItemID }
+    }
+
+    private enum ClipboardDestructiveAction: String {
+        case clearUnpinned
+        case clearAll
+
+        var titleKey: String {
+            switch self {
+            case .clearUnpinned:
+                "ui.clipboard.confirm.clearUnpinned.title"
+            case .clearAll:
+                "ui.clipboard.confirm.clearAll.title"
+            }
+        }
+
+        var messageKey: String {
+            switch self {
+            case .clearUnpinned:
+                "ui.clipboard.confirm.clearUnpinned.message"
+            case .clearAll:
+                "ui.clipboard.confirm.clearAll.message"
+            }
+        }
+
+        var buttonKey: String {
+            switch self {
+            case .clearUnpinned:
+                "ui.clipboard.button.clearUnpinned"
+            case .clearAll:
+                "ui.clipboard.button.clearAll"
+            }
+        }
     }
 
     var body: some View {
@@ -99,6 +132,9 @@ struct MenuBarRootView: View {
         }
         .onDisappear {
             focusedField = false
+            feedbackDismissTask?.cancel()
+            feedbackDismissTask = nil
+            transientFeedback = nil
             removeKeyMonitor()
         }
         .onMoveCommand { direction in
@@ -107,10 +143,26 @@ struct MenuBarRootView: View {
         .onSubmit {
             copySelectedClipboardItem()
         }
-        .alert(alertTitle, isPresented: $isFeedbackAlertPresented) {
-            Button("OK", role: .cancel) {}
+        .alert(
+            pendingDestructiveAction.map { store.localized($0.titleKey) } ?? "",
+            isPresented: Binding(
+                get: { pendingDestructiveAction != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingDestructiveAction = nil
+                    }
+                }
+            ),
+            presenting: pendingDestructiveAction
+        ) { action in
+            Button(store.localized(action.buttonKey), role: .destructive) {
+                performDestructiveAction(action)
+            }
+            Button(store.localized("ui.button.cancel"), role: .cancel) {
+                pendingDestructiveAction = nil
+            }
         } message: {
-            Text(alertMessage)
+            Text(store.localized($0.messageKey))
         }
     }
 
@@ -160,8 +212,7 @@ struct MenuBarRootView: View {
                                     .foregroundStyle(.secondary)
                                 Spacer()
                                 Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(ocrText, forType: .string)
+                                    copyTextToPasteboard(ocrText)
                                 } label: {
                                     Label(store.localized("ui.clipboard.button.copy"), systemImage: "doc.on.doc")
                                         .font(.caption)
@@ -234,21 +285,58 @@ struct MenuBarRootView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text("MacBar")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("MacBar")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
 
-            CommandAwareSearchField(
-                text: $store.clipboardSearchText,
-                placeholder: store.localized("ui.clipboard.search.placeholder"),
-                isFocused: focusedField,
-                onFocus: { focusedField = true },
-                onMoveUp: { moveClipboardSelection(delta: -1) },
-                onMoveDown: { moveClipboardSelection(delta: 1) },
-                onSubmit: { copySelectedClipboardItem() }
-            )
-            .frame(minWidth: 180, maxWidth: .infinity)
+                CommandAwareSearchField(
+                    text: $store.clipboardSearchText,
+                    placeholder: store.localized("ui.clipboard.search.placeholder"),
+                    isFocused: focusedField,
+                    onFocus: { focusedField = true },
+                    onMoveUp: { moveClipboardSelection(delta: -1) },
+                    onMoveDown: { moveClipboardSelection(delta: 1) },
+                    onSubmit: { copySelectedClipboardItem() },
+                    onCancel: { handleCancelAction() }
+                )
+                .frame(minWidth: 180, maxWidth: .infinity)
+            }
+
+            HStack(spacing: 8) {
+                statusChip(
+                    systemImage: store.isClipboardMonitoringEnabled ? "wave.3.right.circle.fill" : "pause.circle.fill",
+                    label: store.localized(
+                        store.isClipboardMonitoringEnabled
+                            ? "ui.clipboard.status.monitoringOn"
+                            : "ui.clipboard.status.monitoringOff"
+                    ),
+                    tint: store.isClipboardMonitoringEnabled ? .green : .orange
+                )
+
+                if store.isClipboardSearching {
+                    statusChip(
+                        systemImage: "line.3.horizontal.decrease.circle.fill",
+                        label: store.localized("ui.clipboard.status.resultsCount", clipboardNavigationItems.count),
+                        tint: clipboardNavigationItems.isEmpty ? .secondary : .accentColor
+                    )
+
+                    Button(store.localized("ui.clipboard.button.clearSearch")) {
+                        clearSearch()
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                } else if !store.clipboardHistory.isEmpty {
+                    statusChip(
+                        systemImage: "tray.full.fill",
+                        label: store.localized("ui.clipboard.status.itemsCount", store.clipboardHistory.count),
+                        tint: .secondary
+                    )
+                }
+
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -269,7 +357,11 @@ struct MenuBarRootView: View {
 
         VStack(alignment: .leading, spacing: 14) {
             if pinned.isEmpty, recent.isEmpty {
-                clipboardEmptyState
+                if store.isClipboardSearching {
+                    clipboardSearchEmptyState
+                } else {
+                    clipboardEmptyState
+                }
             } else {
                 if !pinned.isEmpty {
                     clipboardPinnedSection(
@@ -304,6 +396,35 @@ struct MenuBarRootView: View {
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if !store.isClipboardMonitoringEnabled {
+                Button(store.localized("ui.clipboard.button.resumeMonitoring")) {
+                    presentFeedback(store.toggleClipboardMonitoring())
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+    }
+
+    private var clipboardSearchEmptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text(store.localized("ui.clipboard.empty.search.title"))
+                .font(.subheadline.weight(.semibold))
+            Text(store.localized("ui.clipboard.empty.search.hint"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button(store.localized("ui.clipboard.button.clearSearch")) {
+                clearSearch()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
@@ -373,7 +494,7 @@ struct MenuBarRootView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 if item.isFile, let fileURL = item.fileURLs.first {
-                    Text(fileURL.lastPathComponent)
+                    Text(fileTitle(for: item, firstFileURL: fileURL))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -385,6 +506,12 @@ struct MenuBarRootView: View {
                 } else {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Text(textRowSubtitle(for: item))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -412,8 +539,7 @@ struct MenuBarRootView: View {
             )
 
             Button {
-                selectedClipboardItemID = item.id
-                _ = store.copyClipboardItem(item.id)
+                copyClipboardItemToPasteboard(item.id)
             } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 13, weight: .semibold))
@@ -548,6 +674,9 @@ struct MenuBarRootView: View {
         case 36, 76: // return / keypad enter
             copySelectedClipboardItem()
             return true
+        case 53: // escape
+            requestClosePanel(restorePreviousApp: true)
+            return true
         case 51, 117: // backspace / forward delete
             return handleDeleteShortcutInActivePanel()
         default:
@@ -591,8 +720,7 @@ struct MenuBarRootView: View {
 
         let selected = selectedClipboardItemID
             .flatMap { id in items.first(where: { $0.id == id }) } ?? items[0]
-        selectedClipboardItemID = selected.id
-        _ = store.copyClipboardItem(selected.id)
+        copyClipboardItemToPasteboard(selected.id)
     }
 
     private func deleteSelectedClipboardItem() {
@@ -621,9 +749,7 @@ struct MenuBarRootView: View {
             return
         }
 
-        let item = items[index]
-        selectedClipboardItemID = item.id
-        _ = store.copyClipboardItem(item.id)
+        copyClipboardItemToPasteboard(items[index].id)
     }
 
     private func copyRecentClipboardItemByIndex(_ index: Int) {
@@ -632,9 +758,7 @@ struct MenuBarRootView: View {
             return
         }
 
-        let item = items[index]
-        selectedClipboardItemID = item.id
-        _ = store.copyClipboardItem(item.id)
+        copyClipboardItemToPasteboard(items[index].id)
     }
 
     private func syncSelectedClipboardItem() {
@@ -655,38 +779,46 @@ struct MenuBarRootView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
-            languageMenu
+        VStack(alignment: .leading, spacing: 10) {
+            if let transientFeedback {
+                feedbackStrip(transientFeedback)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
 
-            Spacer()
+            HStack {
+                languageMenu
+                clipboardActionsMenu
 
-            if store.isUpdateInstalling {
-                HStack(spacing: 4) {
-                    ProgressView().controlSize(.mini)
-                    Text(store.localized("ui.update.installing"))
+                Spacer()
+
+                if store.isUpdateInstalling {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text(store.localized("ui.update.installing"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let release = store.pendingUpdateRelease {
+                    Button {
+                        Task { await store.installUpdate() }
+                    } label: {
+                        Label(
+                            store.localized("ui.update.available", release.versionNumber),
+                            systemImage: "arrow.down.circle.fill"
+                        )
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                    .tint(.green)
                 }
-            } else if let release = store.pendingUpdateRelease {
-                Button {
-                    Task { await store.installUpdate() }
-                } label: {
-                    Label(
-                        store.localized("ui.update.available", release.versionNumber),
-                        systemImage: "arrow.down.circle.fill"
-                    )
-                    .font(.caption)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.mini)
-                .tint(.green)
-            }
 
-            Button(store.localized("ui.button.quit")) {
-                NSApplication.shared.terminate(nil)
+                Button(store.localized("ui.button.quit")) {
+                    NSApplication.shared.terminate(nil)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
         }
     }
 
@@ -710,14 +842,64 @@ struct MenuBarRootView: View {
         .controlSize(.small)
     }
 
+    private var clipboardActionsMenu: some View {
+        Menu {
+            Button {
+                presentFeedback(store.toggleClipboardMonitoring())
+            } label: {
+                Label(
+                    store.localized(
+                        store.isClipboardMonitoringEnabled
+                            ? "ui.clipboard.button.pauseMonitoring"
+                            : "ui.clipboard.button.resumeMonitoring"
+                    ),
+                    systemImage: store.isClipboardMonitoringEnabled ? "pause.circle" : "play.circle"
+                )
+            }
+
+            Divider()
+
+            Button {
+                pendingDestructiveAction = .clearUnpinned
+            } label: {
+                Label(store.localized("ui.clipboard.button.clearUnpinned"), systemImage: "line.3.horizontal.decrease.circle")
+            }
+
+            Button(role: .destructive) {
+                pendingDestructiveAction = .clearAll
+            } label: {
+                Label(store.localized("ui.clipboard.button.clearAll"), systemImage: "trash")
+            }
+        } label: {
+            Label(store.localized("ui.menu.actions"), systemImage: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+    }
+
     private func presentFeedback(_ feedback: StoreFeedback?) {
         guard let feedback else {
             return
         }
 
-        alertTitle = feedback.title
-        alertMessage = feedback.message
-        isFeedbackAlertPresented = true
+        feedbackDismissTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            transientFeedback = feedback
+        }
+
+        feedbackDismissTask = Task {
+            try? await Task.sleep(for: .seconds(2.6))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    transientFeedback = nil
+                }
+                feedbackDismissTask = nil
+            }
+        }
     }
 
     private func languageLabel(for option: LanguageOption) -> String {
@@ -752,6 +934,114 @@ struct MenuBarRootView: View {
             Task { await autoOCRClipboardItem(item) }
         }
     }
+
+    private func clearSearch() {
+        guard !store.clipboardSearchText.isEmpty else {
+            return
+        }
+        store.clipboardSearchText = ""
+        focusedField = true
+    }
+
+    private func handleCancelAction() {
+        if hasMeaningfulText(store.clipboardSearchText) {
+            clearSearch()
+        } else {
+            requestClosePanel(restorePreviousApp: true)
+        }
+    }
+
+    private func copyClipboardItemToPasteboard(_ itemID: UUID) {
+        selectedClipboardItemID = itemID
+        let feedback = store.copyClipboardItem(itemID)
+        if onRequestClose != nil {
+            requestClosePanel(restorePreviousApp: true)
+        } else {
+            presentFeedback(feedback)
+        }
+    }
+
+    private func copyTextToPasteboard(_ text: String) {
+        let feedback = store.copyTextToClipboard(text)
+        if onRequestClose != nil {
+            requestClosePanel(restorePreviousApp: true)
+        } else {
+            presentFeedback(feedback)
+        }
+    }
+
+    private func performDestructiveAction(_ action: ClipboardDestructiveAction) {
+        switch action {
+        case .clearUnpinned:
+            presentFeedback(store.clearUnpinnedClipboardItems())
+        case .clearAll:
+            presentFeedback(store.clearClipboardHistory())
+        }
+        pendingDestructiveAction = nil
+    }
+
+    private func fileTitle(for item: ClipboardItem, firstFileURL: URL) -> String {
+        guard item.fileURLs.count > 1 else {
+            return firstFileURL.lastPathComponent
+        }
+
+        return "\(firstFileURL.lastPathComponent) · \(store.localized("ui.clipboard.item.fileCount", item.fileURLs.count))"
+    }
+
+    private func textRowSubtitle(for item: ClipboardItem) -> String {
+        if !item.previewSubtitle.isEmpty {
+            return item.previewSubtitle
+        }
+
+        return store.clipboardCapturedAtLabel(for: item)
+    }
+
+    private func statusChip(systemImage: String, label: String, tint: Color) -> some View {
+        Label(label, systemImage: systemImage)
+            .font(.caption)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.14))
+            )
+            .foregroundStyle(tint)
+    }
+
+    private func feedbackStrip(_ feedback: StoreFeedback) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.system(size: 13, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(feedback.title)
+                    .font(.caption.weight(.semibold))
+                Text(feedback.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func requestClosePanel(restorePreviousApp: Bool) {
+        feedbackDismissTask?.cancel()
+        DispatchQueue.main.async {
+            onRequestClose?(restorePreviousApp)
+        }
+    }
 }
 
 private struct CommandAwareSearchField: NSViewRepresentable {
@@ -762,6 +1052,7 @@ private struct CommandAwareSearchField: NSViewRepresentable {
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
     let onSubmit: () -> Void
+    let onCancel: () -> Void
 
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         var parent: CommandAwareSearchField
@@ -794,6 +1085,9 @@ private struct CommandAwareSearchField: NSViewRepresentable {
                 return true
             case #selector(NSResponder.insertNewline(_:)):
                 parent.onSubmit()
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                parent.onCancel()
                 return true
             default:
                 return false

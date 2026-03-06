@@ -20,7 +20,6 @@ final class MacBarStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let localizationManager: LocalizationManager
-    private let configurationManager: AppConfigurationManager
     private let clipboardMonitor: ClipboardMonitor
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
@@ -34,12 +33,10 @@ final class MacBarStore: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         localizationManager: LocalizationManager = LocalizationManager(),
-        configurationManager: AppConfigurationManager = AppConfigurationManager(),
         clipboardMonitor: ClipboardMonitor = ClipboardMonitor()
     ) {
         self.defaults = defaults
         self.localizationManager = localizationManager
-        self.configurationManager = configurationManager
         self.clipboardMonitor = clipboardMonitor
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
@@ -141,6 +138,14 @@ final class MacBarStore: ObservableObject {
         clipboardOCRCache[id] = text
     }
 
+    func copyTextToClipboard(_ text: String) -> StoreFeedback {
+        clipboardMonitor.copyTextToPasteboard(text)
+        return makeFeedback(
+            titleKey: "feedback.clipboard.title",
+            messageKey: "feedback.clipboard.copied"
+        )
+    }
+
     func deleteClipboardItem(_ itemID: UUID) {
         clipboardHistory.removeAll { $0.id == itemID }
         pinnedClipboardItemIDs.remove(itemID)
@@ -200,38 +205,6 @@ final class MacBarStore: ObservableObject {
         return formatter.localizedString(for: item.capturedAt, relativeTo: Date())
     }
 
-    // MARK: - Configuration
-
-    func exportConfiguration() -> StoreFeedback? {
-        do {
-            let url = try configurationManager.exportConfiguration(currentConfiguration())
-            return makeFeedback(
-                titleKey: "feedback.configuration.title",
-                messageKey: "feedback.configuration.exported",
-                arguments: [url.path]
-            )
-        } catch AppConfigurationError.cancelled {
-            return nil
-        } catch {
-            return feedbackForConfigurationError(error)
-        }
-    }
-
-    func importConfiguration() -> StoreFeedback? {
-        do {
-            let importedConfiguration = try configurationManager.importConfiguration()
-            apply(configuration: importedConfiguration)
-            return makeFeedback(
-                titleKey: "feedback.configuration.title",
-                messageKey: "feedback.configuration.imported"
-            )
-        } catch AppConfigurationError.cancelled {
-            return nil
-        } catch {
-            return feedbackForConfigurationError(error)
-        }
-    }
-
     private var filteredClipboardItems: [ClipboardItem] {
         let query = clipboardSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
@@ -242,7 +215,8 @@ final class MacBarStore: ObservableObject {
             if item.isFile {
                 let fileLabel = localized("ui.clipboard.item.file").localizedCaseInsensitiveContains(query)
                 let fileNameMatch = item.fileURLs.contains { $0.lastPathComponent.localizedCaseInsensitiveContains(query) }
-                return fileLabel || fileNameMatch
+                let filePathMatch = item.fileURLs.contains { $0.path.localizedCaseInsensitiveContains(query) }
+                return fileLabel || fileNameMatch || filePathMatch
             }
 
             if item.isImage {
@@ -437,37 +411,6 @@ final class MacBarStore: ObservableObject {
         return Set(rawIDs.compactMap(UUID.init(uuidString:)))
     }
 
-    private func currentConfiguration() -> AppConfiguration {
-        configurationManager.makeConfiguration(
-            selectedLanguageCode: localizationManager.selectedLanguageCode,
-            clipboardItems: clipboardHistory,
-            clipboardPinnedIDs: Array(pinnedClipboardItemIDs).map(\.uuidString).sorted(),
-            clipboardMonitoringEnabled: isClipboardMonitoringEnabled
-        )
-    }
-
-    private func apply(configuration: AppConfiguration) {
-        localizationManager.selectLanguage(code: configuration.selectedLanguageCode)
-
-        if let importedClipboardItems = configuration.clipboardItems {
-            clipboardHistory = importedClipboardItems
-        }
-
-        if let importedPinnedIDs = configuration.clipboardPinnedIDs {
-            pinnedClipboardItemIDs = Set(importedPinnedIDs.compactMap(UUID.init(uuidString:)))
-        }
-
-        if let importedMonitoringEnabled = configuration.clipboardMonitoringEnabled {
-            isClipboardMonitoringEnabled = importedMonitoringEnabled
-            defaults.set(importedMonitoringEnabled, forKey: Keys.clipboardMonitoringEnabled)
-        }
-
-        normalizeClipboardState()
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
-        configureClipboardMonitoring()
-    }
-
     private func makeFeedback(
         titleKey: String,
         messageKey: String,
@@ -509,25 +452,5 @@ final class MacBarStore: ObservableObject {
                 NSWorkspace.shared.open(url)
             }
         }
-    }
-
-    private func feedbackForConfigurationError(_ error: Error) -> StoreFeedback {
-        let messageKey: String
-
-        switch error {
-        case AppConfigurationError.decodeFailed, AppConfigurationError.invalidPayload:
-            messageKey = "feedback.configuration.error.invalidFile"
-        case AppConfigurationError.writeFailed:
-            messageKey = "feedback.configuration.error.writeFailed"
-        case AppConfigurationError.readFailed:
-            messageKey = "feedback.configuration.error.readFailed"
-        default:
-            messageKey = "feedback.configuration.error.generic"
-        }
-
-        return makeFeedback(
-            titleKey: "feedback.configuration.title",
-            messageKey: messageKey
-        )
     }
 }
