@@ -270,10 +270,10 @@ struct MenuBarRootView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.localized("ui.clipboard.hint.copyShortcut"))
+                Text(store.clipboardCopyShortcutHint())
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(store.localized("ui.clipboard.hint.deleteShortcut"))
+                Text(store.clipboardDeleteShortcutHint())
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -86,6 +86,28 @@ final class MacBarStore: ObservableObject {
         localizationManager.localized(key, arguments: arguments)
     }
 
+    func clipboardCopyShortcutHint() -> String {
+        switch shortcutHintStyle {
+        case .chineseSimplified, .chineseTraditional:
+            return "Enter：\(localized("ui.clipboard.button.copy"))"
+        case .defaultStyle:
+            return "Enter → \(localized("ui.clipboard.button.copy"))"
+        }
+    }
+
+    func clipboardDeleteShortcutHint() -> String {
+        let deleteAction = localized("ui.clipboard.help.delete")
+
+        switch shortcutHintStyle {
+        case .chineseSimplified:
+            return "CMD + 删除键：\(deleteAction)"
+        case .chineseTraditional:
+            return "CMD + 刪除鍵：\(deleteAction)"
+        case .defaultStyle:
+            return "⌘Delete → \(deleteAction)"
+        }
+    }
+
     func isClipboardItemPinned(_ itemID: UUID) -> Bool {
         pinnedClipboardItemIDs.contains(itemID)
     }
@@ -453,6 +475,33 @@ final class MacBarStore: ObservableObject {
                 ? localized(messageKey)
                 : localizationManager.localized(messageKey, arguments: arguments)
         )
+    }
+
+    private enum ShortcutHintStyle {
+        case defaultStyle
+        case chineseSimplified
+        case chineseTraditional
+    }
+
+    private var shortcutHintStyle: ShortcutHintStyle {
+        let identifier = localizationManager.effectiveLanguageIdentifier.lowercased()
+
+        if identifier.hasPrefix("zh") {
+            if identifier.contains("hant") || identifier.contains("tw") || identifier.contains("hk") || identifier.contains("mo") {
+                return .chineseTraditional
+            }
+            return .chineseSimplified
+        }
+
+        if ["yue", "nan", "hak"].contains(where: { identifier.hasPrefix($0) }) {
+            return .chineseTraditional
+        }
+
+        if identifier.hasPrefix("wuu") {
+            return .chineseSimplified
+        }
+
+        return .defaultStyle
     }
 
     // MARK: - Update

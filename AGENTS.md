@@ -75,6 +75,7 @@ docs/
 ## 本地化规则
 
 - 用户可见字符串不要直接硬编码，除应用名 `MacBar` 和系统按钮 `OK` 外，统一走 `store.localized(...)` 或 `localizationManager.localized(...)`。
+- 快捷键、按键名、菜单动作等文案要符合目标语言的真实使用习惯，不要机械直译；例如中文场景优先写 `Enter`、`CMD + 删除键`，而不是把按键名称字面翻成“输入”“命令删除”。
 - 新增文案时，至少同步更新：
   - `Sources/MacBar/Resources/en.lproj/Localizable.strings`
   - `Sources/MacBar/Resources/zh-Hans.lproj/Localizable.strings`
