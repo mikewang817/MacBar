@@ -24,12 +24,16 @@ final class MacBarStore: ObservableObject {
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
+    private var lastUpdateCheckAt: Date?
+    private var isCheckingForUpdates = false
 
     private enum Keys {
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
         static let pinnedClipboardIDs = "macbar.pinnedClipboardIDs"
         static let clipboardMonitoringEnabled = "macbar.clipboardMonitoringEnabled"
     }
+
+    private static let updateCheckMinimumInterval: TimeInterval = 10 * 60
 
     init(
         defaults: UserDefaults = .standard,
@@ -506,12 +510,30 @@ final class MacBarStore: ObservableObject {
 
     // MARK: - Update
 
-    func checkForUpdates() async {
+    func checkForUpdates(force: Bool = false) async {
+        if isCheckingForUpdates {
+            return
+        }
+
+        if !force,
+           let lastUpdateCheckAt,
+           Date().timeIntervalSince(lastUpdateCheckAt) < Self.updateCheckMinimumInterval {
+            return
+        }
+
+        isCheckingForUpdates = true
+        defer {
+            isCheckingForUpdates = false
+            lastUpdateCheckAt = Date()
+        }
+
         let currentVersion = AppVersion.shortVersion
         do {
             let release = try await updateService.fetchLatestRelease()
             if updateService.isNewerVersion(release.versionNumber, than: currentVersion) {
                 pendingUpdateRelease = release
+            } else {
+                pendingUpdateRelease = nil
             }
         } catch {
             // Silent fail — update check is best-effort

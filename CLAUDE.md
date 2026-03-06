@@ -253,7 +253,8 @@ python scripts/generate_localizations.py
 **新增面板**: `AppPanel.swift` 添加 case → `MenuBarRootView` 补全相关逻辑（header、clipboardPanelBody 改为 activePanelBody switch、handleKeyDown、handleMoveCommand、showPreview 等）
 
 **自动更新流程**:
-- `AppDelegate.applicationDidFinishLaunching` 启动 5s 后触发 `store.checkForUpdates()`
+- `AppDelegate.applicationDidFinishLaunching` 启动 5s 后触发一次 `store.checkForUpdates(force: true)`
+- 每次打开面板时也会触发一次节流检查；当前冷却时间是 10 分钟，避免长时间不重启时错过新 release
 - `MacBarStore.pendingUpdateRelease` 非 nil 时，footer 显示绿色更新按钮
 - 点击按钮调用 `store.installUpdate()` → `UpdateService.downloadAndInstall()`
 - 安装脚本：`sleep 2` → `rm -rf /Applications/MacBar.app` → `cp -Rf` → `open` → 退出当前进程

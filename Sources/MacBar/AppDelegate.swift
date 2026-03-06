@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             try? await Task.sleep(for: .seconds(5))
-            await AppServices.shared.store.checkForUpdates()
+            await AppServices.shared.store.checkForUpdates(force: true)
         }
     }
 
@@ -112,6 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startEventMonitors()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+
+        Task {
+            await AppServices.shared.store.checkForUpdates()
+        }
 
         DispatchQueue.main.async { [weak self] in
             self?.adjustPanelWindowToVisibleFrame()
