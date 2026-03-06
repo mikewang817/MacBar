@@ -148,8 +148,7 @@ enum ClipboardCapture: Equatable {
 - `↑` / `↓`: 导航列表
 - `Enter`: 复制选中条目
 - `Esc`: 搜索框有内容时清空搜索，否则关闭面板并尝试回到原应用
-- `Delete` / `Backspace`: 删除选中条目（搜索框为空时）
-- `⌘Delete`: 删除选中条目（搜索框有内容时同样有效）
+- `⌘Delete`: 删除选中条目（无论搜索框状态）
 - `⌘1–9`: 快速复制最近第 N 条
 - `⌘A–Z`: 快速复制第 N 个置顶条目
 - `⇧⌘M`: 全局 toggle 面板（在 AppDelegate 注册）

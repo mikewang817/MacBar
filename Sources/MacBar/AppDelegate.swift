@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppServices.shared.store.flushPendingPersistence()
         stopEventMonitors()
         if let hotkeyLocalMonitor { NSEvent.removeMonitor(hotkeyLocalMonitor) }
         if let carbonHotKeyRef { UnregisterEventHotKey(carbonHotKeyRef) }

@@ -608,14 +608,6 @@ struct MenuBarRootView: View {
             || firstResponder is NSTextField
     }
 
-    private func handleDeleteShortcutInActivePanel() -> Bool {
-        guard !hasMeaningfulText(store.clipboardSearchText) else {
-            return false
-        }
-        deleteSelectedClipboardItem()
-        return true
-    }
-
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
@@ -646,10 +638,6 @@ struct MenuBarRootView: View {
             }
         }
 
-        if flags.isEmpty, isDeleteKey, handleDeleteShortcutInActivePanel() {
-            return true
-        }
-
         if isAnyTextInputEditing() {
             return false
         }
@@ -677,8 +665,6 @@ struct MenuBarRootView: View {
         case 53: // escape
             requestClosePanel(restorePreviousApp: true)
             return true
-        case 51, 117: // backspace / forward delete
-            return handleDeleteShortcutInActivePanel()
         default:
             return false
         }
@@ -953,9 +939,17 @@ struct MenuBarRootView: View {
 
     private func copyClipboardItemToPasteboard(_ itemID: UUID) {
         selectedClipboardItemID = itemID
-        let feedback = store.copyClipboardItem(itemID)
-        if onRequestClose != nil {
+        let shouldClosePanel = onRequestClose != nil
+        let feedback = store.copyClipboardItem(
+            itemID,
+            persistHistoryImmediately: !shouldClosePanel
+        )
+
+        if shouldClosePanel {
             requestClosePanel(restorePreviousApp: true)
+            Task { @MainActor in
+                store.scheduleClipboardPersistence()
+            }
         } else {
             presentFeedback(feedback)
         }

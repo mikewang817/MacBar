@@ -23,6 +23,7 @@ final class MacBarStore: ObservableObject {
     private let clipboardMonitor: ClipboardMonitor
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
+    private var pendingPersistenceTask: Task<Void, Never>?
 
     private enum Keys {
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
@@ -97,11 +98,10 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
+        schedulePersistence()
     }
 
-    func copyClipboardItem(_ itemID: UUID) -> StoreFeedback? {
+    func copyClipboardItem(_ itemID: UUID, persistHistoryImmediately: Bool = true) -> StoreFeedback? {
         guard let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) else {
             return nil
         }
@@ -127,7 +127,9 @@ final class MacBarStore: ObservableObject {
             at: 0
         )
 
-        saveClipboardHistory()
+        if persistHistoryImmediately {
+            schedulePersistence()
+        }
         return makeFeedback(
             titleKey: "feedback.clipboard.title",
             messageKey: "feedback.clipboard.copied"
@@ -146,12 +148,24 @@ final class MacBarStore: ObservableObject {
         )
     }
 
+    func scheduleClipboardPersistence() {
+        schedulePersistence()
+    }
+
+    func flushPendingPersistence() {
+        pendingPersistenceTask?.cancel()
+        pendingPersistenceTask = nil
+        persistClipboardState(
+            history: clipboardHistory,
+            pinnedIDs: serializedPinnedClipboardIDs()
+        )
+    }
+
     func deleteClipboardItem(_ itemID: UUID) {
         clipboardHistory.removeAll { $0.id == itemID }
         pinnedClipboardItemIDs.remove(itemID)
         clipboardOCRCache.removeValue(forKey: itemID)
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
+        schedulePersistence()
     }
 
     func clearUnpinnedClipboardItems() -> StoreFeedback? {
@@ -164,7 +178,7 @@ final class MacBarStore: ObservableObject {
         }
 
         removedIDs.forEach { clipboardOCRCache.removeValue(forKey: $0) }
-        saveClipboardHistory()
+        schedulePersistence()
         return makeFeedback(
             titleKey: "feedback.clipboard.title",
             messageKey: "feedback.clipboard.clearedUnpinned"
@@ -179,8 +193,7 @@ final class MacBarStore: ObservableObject {
         clipboardHistory.removeAll()
         pinnedClipboardItemIDs.removeAll()
         clipboardOCRCache.removeAll()
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
+        schedulePersistence()
 
         return makeFeedback(
             titleKey: "feedback.clipboard.title",
@@ -287,8 +300,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
+        schedulePersistence()
     }
 
     private func captureClipboardImage(_ rawData: Data) {
@@ -323,8 +335,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
+        schedulePersistence()
     }
 
     private func captureClipboardFiles(_ urls: [URL]) {
@@ -361,8 +372,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
-        saveClipboardHistory()
-        savePinnedClipboardIDs()
+        schedulePersistence()
     }
 
     private func normalizeClipboardState() {
@@ -383,18 +393,39 @@ final class MacBarStore: ObservableObject {
         clipboardHistory = normalized
     }
 
-    private func saveClipboardHistory() {
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(clipboardHistory) {
-            defaults.set(data, forKey: Keys.clipboardHistoryData)
+    private func schedulePersistence() {
+        pendingPersistenceTask?.cancel()
+
+        let historySnapshot = clipboardHistory
+        let pinnedSnapshot = serializedPinnedClipboardIDs()
+
+        pendingPersistenceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled, let self else {
+                return
+            }
+
+            self.persistClipboardState(
+                history: historySnapshot,
+                pinnedIDs: pinnedSnapshot
+            )
+            self.pendingPersistenceTask = nil
         }
     }
 
-    private func savePinnedClipboardIDs() {
-        defaults.set(
-            Array(pinnedClipboardItemIDs).map(\.uuidString).sorted(),
-            forKey: Keys.pinnedClipboardIDs
-        )
+    private func serializedPinnedClipboardIDs() -> [String] {
+        Array(pinnedClipboardItemIDs).map(\.uuidString).sorted()
+    }
+
+    private func persistClipboardState(
+        history: [ClipboardItem],
+        pinnedIDs: [String]
+    ) {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(history) {
+            defaults.set(data, forKey: Keys.clipboardHistoryData)
+        }
+        defaults.set(pinnedIDs, forKey: Keys.pinnedClipboardIDs)
     }
 
     private static func loadClipboardHistory(defaults: UserDefaults) -> [ClipboardItem] {
