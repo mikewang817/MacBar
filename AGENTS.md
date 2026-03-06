@@ -101,9 +101,11 @@ docs/
 - `CFBundleVersion`：整数，每次 +1
 - `CFBundleShortVersionString`：语义版本，如 `1.0.8`
 
+同时同步更新 `Sources/MacBar/AppVersion.swift` 里的 fallback 值。原因是 SwiftPM 运行时的 `Bundle.main` 不一定带上自定义 `Info.plist`，应用内版本显示和更新检查会回退到这里。
+
 提交并推送：
 ```bash
-git add Sources/MacBar/Info.plist
+git add Sources/MacBar/Info.plist Sources/MacBar/AppVersion.swift
 git commit -m "chore: bump version to X.X.X"
 git push
 ```

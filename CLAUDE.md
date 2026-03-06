@@ -280,3 +280,4 @@ cd /tmp/MacBarBuild && ditto -c -k --keepParent MacBar.app MacBar-vX.X.X.zip
 gh release create vX.X.X MacBar-vX.X.X.zip --title "MacBar vX.X.X" --notes "..."
 ```
 - `MacBar_MacBar.bundle` 必须包含，否则 SPM 资源包找不到，所有本地化字符串不显示
+- 版本号变更时，除了 `Sources/MacBar/Info.plist`，还要同步更新 `Sources/MacBar/AppVersion.swift` 的 fallback 值；SwiftPM 运行时的 `Bundle.main` 可能读不到自定义 `Info.plist`

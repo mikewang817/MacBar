@@ -458,9 +458,7 @@ final class MacBarStore: ObservableObject {
     // MARK: - Update
 
     func checkForUpdates() async {
-        guard let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
-            return
-        }
+        let currentVersion = AppVersion.shortVersion
         do {
             let release = try await updateService.fetchLatestRelease()
             if updateService.isNewerVersion(release.versionNumber, than: currentVersion) {

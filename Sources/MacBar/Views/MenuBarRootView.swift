@@ -799,7 +799,7 @@ struct MenuBarRootView: View {
                     .tint(.green)
                 }
 
-                Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")")
+                Text(AppVersion.displayString)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
 
