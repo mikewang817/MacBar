@@ -41,6 +41,7 @@ Sources/MacBar/
 scripts/
 README.md
 README.zh-Hans.md
+docs/
 ```
 
 重点文件：
@@ -89,6 +90,20 @@ README.zh-Hans.md
 - 涉及资源或本地化包时，确认 `Package.swift` 的 `resources: [.process("Resources")]` 仍然满足需求。
 - 当前版本没有配置导入/导出功能，除非用户明确要求，否则不要重新引入相关入口或模型。
 - 不要引入网络库、数据库、统计 SDK 或其他第三方依赖，除非用户明确要求并接受架构变化。
+
+## 小红书内容管理
+
+- `docs/xiaohongshu.md` 是当前待发布的小红书草稿，默认始终保持为最新版本。
+- 小红书历史和选题统一放在 `docs/xiaohongshu/`：
+  - `README.md`：内容台账和工作流
+  - `TEMPLATE.md`：新稿模板
+  - `ideas.md`：选题池
+  - `drafts/`：每篇草稿归档
+  - `published/`：已发布定稿
+- 新写一篇时，先判断是不是上一篇的续篇；如果是续篇，正文要承接上一篇，不要重新从零介绍 MacBar。
+- 小红书文案默认站在用户视角，重点讲产品价值、真实场景和体验变化；技术实现只保留用户能感知到的部分。
+- 小红书文案文件虽然使用 `.md` 扩展名存储，但正文格式按纯文本写，不使用 Markdown 标题、项目列表、加粗、引用或链接语法，避免发布前再次手动清洗。
+- 每次新增或重写小红书时，除了更新 `docs/xiaohongshu.md`，也要同步把当前版本归档到 `docs/xiaohongshu/drafts/`，并维护 `docs/xiaohongshu/README.md` 里的内容台账。
 
 ## 交付前检查
 

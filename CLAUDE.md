@@ -220,6 +220,20 @@ python scripts/generate_localizations.py
 
 > **注意**：代码中禁止硬编码用户可见字符串（除 `"MacBar"` 应用名和系统按钮 `"OK"` 外）。
 
+## 小红书文案管理
+
+- 当前待发布的小红书统一维护在 `docs/xiaohongshu.md`。
+- 系列化管理目录为 `docs/xiaohongshu/`：
+  - `README.md`：记录内容台账、命名规则和工作流
+  - `TEMPLATE.md`：新文案模板
+  - `ideas.md`：后续选题池
+  - `drafts/`：按 `YYYY-MM-DD-序号-主题.md` 归档草稿
+  - `published/`：已发布定稿
+- 如果用户说“这是上一篇的续篇”，新稿必须延续上一篇的叙事，不要重新做一篇通用产品介绍。
+- 文案默认优先讲用户痛点、产品定位、体验变化，再讲技术；避免写成提交记录或功能清单。
+- 小红书稿件即使保存在 `.md` 文件中，也按纯文本格式书写，不使用 Markdown 标题、列表、加粗、引用和链接语法。
+- 每次产出可读草稿后，要同时更新 `docs/xiaohongshu.md` 和对应的 `docs/xiaohongshu/drafts/...` 文件，并补全 `docs/xiaohongshu/README.md` 的台账。
+
 ## 常见任务
 
 
