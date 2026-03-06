@@ -21,6 +21,8 @@
 "ui.clipboard.help.pin" = "Pin this item";
 "ui.clipboard.help.unpin" = "Unpin this item";
 "ui.clipboard.help.delete" = "Delete this item";
+"ui.clipboard.hint.copyShortcut" = "Enter → Copy";
+"ui.clipboard.hint.deleteShortcut" = "⌘Delete → Delete this item";
 "ui.clipboard.button.revealInFinder" = "Reveal in Finder";
 "ui.clipboard.status.monitoringOn" = "Monitoring On";
 "ui.clipboard.status.monitoringOff" = "Monitoring Paused";
@@ -38,6 +40,7 @@
 "ui.button.quit" = "Quit MacBar";
 "ui.button.cancel" = "Cancel";
 "ui.language.menu" = "Language";
+"ui.language.system" = "System";
 "ui.language.followSystem" = "Follow System (%@)";
 "feedback.clipboard.title" = "Clipboard";
 "feedback.clipboard.copied" = "Copied to clipboard.";

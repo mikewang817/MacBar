@@ -270,10 +270,10 @@ struct MenuBarRootView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Enter → \(store.localized("ui.clipboard.button.copy"))")
+                Text(store.localized("ui.clipboard.hint.copyShortcut"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("⌘Delete → \(store.localized("ui.clipboard.help.delete"))")
+                Text(store.localized("ui.clipboard.hint.deleteShortcut"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

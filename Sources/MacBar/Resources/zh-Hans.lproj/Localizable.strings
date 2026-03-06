@@ -21,6 +21,8 @@
 "ui.clipboard.help.pin" = "置顶该条目";
 "ui.clipboard.help.unpin" = "取消置顶";
 "ui.clipboard.help.delete" = "删除该条目";
+"ui.clipboard.hint.copyShortcut" = "回车 → 复制";
+"ui.clipboard.hint.deleteShortcut" = "⌘Delete → 删除该条目";
 "ui.clipboard.button.revealInFinder" = "在 Finder 中显示";
 "ui.clipboard.status.monitoringOn" = "监听中";
 "ui.clipboard.status.monitoringOff" = "监听已暂停";
@@ -38,6 +40,7 @@
 "ui.button.quit" = "退出 MacBar";
 "ui.button.cancel" = "取消";
 "ui.language.menu" = "语言";
+"ui.language.system" = "系统";
 "ui.language.followSystem" = "跟随系统（%@）";
 "feedback.clipboard.title" = "剪贴板";
 "feedback.clipboard.copied" = "已复制到剪贴板";

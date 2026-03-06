@@ -35,14 +35,14 @@ final class LocalizationManager: ObservableObject {
         self.defaults = defaults
         self.selectedLanguageCode = defaults.string(forKey: Keys.selectedLanguageCode) ?? Self.systemLanguageCode
 
-        refreshLanguageOptions()
         refreshEffectiveLanguage()
+        refreshLanguageOptions()
 
         NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.refreshLanguageOptions()
                 self?.refreshEffectiveLanguage()
+                self?.refreshLanguageOptions()
             }
             .store(in: &cancellables)
     }
@@ -59,6 +59,7 @@ final class LocalizationManager: ObservableObject {
         selectedLanguageCode = code
         defaults.set(code, forKey: Keys.selectedLanguageCode)
         refreshEffectiveLanguage()
+        refreshLanguageOptions()
     }
 
     func localized(_ key: String) -> String {
@@ -88,10 +89,16 @@ final class LocalizationManager: ObservableObject {
 
     private func refreshLanguageOptions() {
         let codes = Set(availableLocalizationCodes())
+        var selectionWasReset = false
 
         if selectedLanguageCode != Self.systemLanguageCode && !codes.contains(selectedLanguageCode) {
             selectedLanguageCode = Self.systemLanguageCode
             defaults.set(Self.systemLanguageCode, forKey: Keys.selectedLanguageCode)
+            selectionWasReset = true
+        }
+
+        if selectionWasReset {
+            refreshEffectiveLanguage()
         }
 
         let options = codes
@@ -109,7 +116,7 @@ final class LocalizationManager: ObservableObject {
         languageOptions = [
             LanguageOption(
                 code: Self.systemLanguageCode,
-                displayName: "System",
+                displayName: localized("ui.language.system"),
                 nativeName: ""
             )
         ] + options
@@ -136,7 +143,7 @@ final class LocalizationManager: ObservableObject {
     }
 
     private func localizedLanguageDisplayName(for identifier: String) -> String {
-        let locale = Locale.autoupdatingCurrent
+        let locale = Locale(identifier: effectiveLanguageIdentifier)
 
         if let localized = locale.localizedString(forIdentifier: identifier), !localized.isEmpty {
             return localized
