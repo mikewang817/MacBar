@@ -1,5 +1,7 @@
 # MacBar Agent Guide
 
+> 本文件应与 `CLAUDE.md` 保持同一套规则与流程；修改其中一份时，另一份也要同步更新。
+
 ## 项目概览
 
 - 项目类型：macOS 菜单栏剪贴板管理器
@@ -97,6 +99,26 @@ docs/
 - 当前版本没有配置导入/导出功能，除非用户明确要求，否则不要重新引入相关入口或模型。
 - 不要引入网络库、数据库、统计 SDK 或其他第三方依赖，除非用户明确要求并接受架构变化。
 
+## Git 与网站分支规则
+
+- 网站落地页和 Cloudflare Pages 部署相关改动只允许保留在本地分支 `codex/website-local`。
+- `codex/website-local` 是本地专用分支，不得 push 到 GitHub，不得合并回 `master`，也不要 cherry-pick 其中提交，除非用户明确要求。
+- `master` 默认只保留应用主线代码与文档，不应包含 `website/`、`wrangler.jsonc`、Pages 下载包等网站发布内容。
+- 任何执行 `git push` 之前，必须先检查当前分支不是 `codex/website-local`，并确认 `origin/master..HEAD` 中没有网站相关提交。
+- 建议在 push 前固定执行：
+
+```bash
+git branch --show-current
+git log --oneline origin/master..HEAD
+git diff --stat origin/master..HEAD
+```
+
+- 如果需要继续修改网站，先执行 `git switch codex/website-local`；网站部署到 Cloudflare Pages 不依赖 push GitHub。
+- 每次完成 `gh release create ...` 之后，还要执行 `./scripts/sync_pages_release.sh`。
+- 该脚本会自动读取最新 GitHub Release，在本地分支 `codex/website-local` 更新 `website/downloads/` 和 `/download/latest`，然后部署到 Cloudflare Pages。
+- 该脚本只会在本地提交网站分支，不会 push `codex/website-local` 到 GitHub。
+- 运行脚本前，需确保本机已登录 Wrangler，或环境中存在可用的 `CLOUDFLARE_API_TOKEN`。
+
 ## 发布 Release 流程
 
 每次发布新版本按以下步骤执行：
@@ -111,10 +133,14 @@ docs/
 
 提交并推送：
 ```bash
+git branch --show-current
+git log --oneline origin/master..HEAD
 git add Sources/MacBar/Info.plist Sources/MacBar/AppVersion.swift
 git commit -m "chore: bump version to X.X.X"
 git push
 ```
+
+> **Push 前检查**：确认当前不在 `codex/website-local`，并且待推送提交里不包含网站相关内容。
 
 ### 2. 构建 Archive
 
@@ -171,6 +197,15 @@ gh release create "v${VERSION}" "MacBar-v${VERSION}.zip" \
 
 - ..."
 ```
+
+### 5. 同步 Cloudflare 下载
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+./scripts/sync_pages_release.sh
+```
+
+> **注意**：这个脚本会更新本地分支 `codex/website-local` 并部署 Pages，但不会 push 该分支到 GitHub。
 
 ## 交付前检查
 
