@@ -114,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
 
         Task {
-            await AppServices.shared.store.checkForUpdates()
+            await AppServices.shared.store.registerPanelOpenForUpdateCheck()
         }
 
         DispatchQueue.main.async { [weak self] in

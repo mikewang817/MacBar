@@ -259,7 +259,7 @@ python scripts/generate_localizations.py
 
 **自动更新流程**:
 - `AppDelegate.applicationDidFinishLaunching` 启动 5s 后触发一次 `store.checkForUpdates(force: true)`
-- 每次打开面板时也会触发一次节流检查；当前冷却时间是 10 分钟，避免长时间不重启时错过新 release
+- 每次打开面板时都会累计一次打开计数；当前达到 20 次时会再次检查，避免长时间不重启时错过新 release
 - `MacBarStore.pendingUpdateRelease` 非 nil 时，footer 显示绿色更新按钮
 - 点击按钮调用 `store.installUpdate()` → `UpdateService.downloadAndInstall()`
 - 安装脚本：`sleep 2` → `rm -rf /Applications/MacBar.app` → `cp -Rf` → `open` → 退出当前进程

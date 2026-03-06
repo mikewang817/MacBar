@@ -24,16 +24,17 @@ final class MacBarStore: ObservableObject {
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
-    private var lastUpdateCheckAt: Date?
+    private var panelOpenCountSinceLastUpdateCheck: Int
     private var isCheckingForUpdates = false
 
     private enum Keys {
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
         static let pinnedClipboardIDs = "macbar.pinnedClipboardIDs"
         static let clipboardMonitoringEnabled = "macbar.clipboardMonitoringEnabled"
+        static let updateCheckPanelOpenCount = "macbar.updateCheckPanelOpenCount"
     }
 
-    private static let updateCheckMinimumInterval: TimeInterval = 10 * 60
+    private static let updateCheckPanelOpenThreshold = 20
 
     init(
         defaults: UserDefaults = .standard,
@@ -46,6 +47,7 @@ final class MacBarStore: ObservableObject {
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
         self.isClipboardMonitoringEnabled = defaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool ?? true
+        self.panelOpenCountSinceLastUpdateCheck = defaults.integer(forKey: Keys.updateCheckPanelOpenCount)
 
         normalizeClipboardState()
         configureClipboardMonitoring()
@@ -110,6 +112,17 @@ final class MacBarStore: ObservableObject {
         case .defaultStyle:
             return "⌘Delete → \(deleteAction)"
         }
+    }
+
+    func registerPanelOpenForUpdateCheck() async {
+        panelOpenCountSinceLastUpdateCheck += 1
+        defaults.set(panelOpenCountSinceLastUpdateCheck, forKey: Keys.updateCheckPanelOpenCount)
+
+        guard panelOpenCountSinceLastUpdateCheck >= Self.updateCheckPanelOpenThreshold else {
+            return
+        }
+
+        await checkForUpdates(force: true)
     }
 
     func isClipboardItemPinned(_ itemID: UUID) -> Bool {
@@ -515,16 +528,13 @@ final class MacBarStore: ObservableObject {
             return
         }
 
-        if !force,
-           let lastUpdateCheckAt,
-           Date().timeIntervalSince(lastUpdateCheckAt) < Self.updateCheckMinimumInterval {
-            return
-        }
-
         isCheckingForUpdates = true
         defer {
             isCheckingForUpdates = false
-            lastUpdateCheckAt = Date()
+        }
+
+        if force {
+            resetUpdateCheckPanelOpenCount()
         }
 
         let currentVersion = AppVersion.shortVersion
@@ -552,5 +562,10 @@ final class MacBarStore: ObservableObject {
                 NSWorkspace.shared.open(url)
             }
         }
+    }
+
+    private func resetUpdateCheckPanelOpenCount() {
+        panelOpenCountSinceLastUpdateCheck = 0
+        defaults.set(0, forKey: Keys.updateCheckPanelOpenCount)
     }
 }
