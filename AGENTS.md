@@ -114,7 +114,8 @@ git diff --stat origin/master..HEAD
 ```
 
 - 如果需要继续修改网站，先执行 `git switch codex/website-local`；网站部署到 Cloudflare Pages 不依赖 push GitHub。
-- 每次完成 `gh release create ...` 之后，还要执行 `./scripts/sync_pages_release.sh`。
+- 每次完成 `gh release create ...` 之后，必须先询问用户：是否要将新版本的 MacBar 同步到站点。
+- 只有在用户明确同意后，AI 才执行 `./scripts/sync_pages_release.sh` 并完成站点同步。
 - 该脚本会自动读取最新 GitHub Release，在本地分支 `codex/website-local` 更新 `website/downloads/` 和 `/download/latest`，然后部署到 Cloudflare Pages。
 - 该脚本只会在本地提交网站分支，不会 push `codex/website-local` 到 GitHub。
 - 运行脚本前，需确保本机已登录 Wrangler，或环境中存在可用的 `CLOUDFLARE_API_TOKEN`。
@@ -198,14 +199,18 @@ gh release create "v${VERSION}" "MacBar-v${VERSION}.zip" \
 - ..."
 ```
 
-### 5. 同步 Cloudflare 下载
+### 5. 询问是否同步 Cloudflare 下载
+
+发布 GitHub Release 后，先询问用户是否要把新版本同步到站点。只有在用户明确确认后，才执行下一步。
+
+### 6. 用户确认后同步 Cloudflare 下载
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 ./scripts/sync_pages_release.sh
 ```
 
-> **注意**：这个脚本会更新本地分支 `codex/website-local` 并部署 Pages，但不会 push 该分支到 GitHub。
+> **注意**：这个脚本会更新本地分支 `codex/website-local` 并部署 Pages，但不会 push 该分支到 GitHub；执行前必须先得到用户确认。
 
 ## 交付前检查
 
