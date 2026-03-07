@@ -45,8 +45,6 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 WEBSITE_BRANCH="${WEBSITE_BRANCH:-codex/website-local}"
 PAGES_PROJECT="${PAGES_PROJECT:-macbar}"
 RELEASE_REPO="${RELEASE_REPO:-mikewang817/MacBar}"
-WRANGLER_CONFIG="${HOME}/Library/Preferences/.wrangler/config/default.toml"
-
 cd "$REPO_ROOT"
 
 if ! git show-ref --verify --quiet "refs/heads/${WEBSITE_BRANCH}"; then
@@ -169,24 +167,11 @@ else
   echo "Website branch already points to ${TAG_NAME}; no local commit needed."
 fi
 
-if [[ -z "${CLOUDFLARE_API_TOKEN:-}" && -f "$WRANGLER_CONFIG" ]]; then
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
   TOKEN="$(
     npx --yes wrangler auth token 2>/dev/null | awk 'NF { line = $0 } END { print line }' || true
   )"
-  if [[ -z "$TOKEN" ]]; then
-    TOKEN="$(python3 - <<'PY'
-import re
-from pathlib import Path
-
-config = Path.home() / "Library/Preferences/.wrangler/config/default.toml"
-text = config.read_text()
-match = re.search(r'oauth_token = "([^"]+)"', text)
-if match:
-    print(match.group(1))
-PY
-)"
-  fi
-  if [[ -n "$TOKEN" ]]; then
+  if [[ -n "$TOKEN" && "$TOKEN" != *" "* && "$TOKEN" != *$'\t'* ]]; then
     export CLOUDFLARE_API_TOKEN="$TOKEN"
   fi
 fi
