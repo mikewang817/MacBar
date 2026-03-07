@@ -75,7 +75,7 @@ docs/
 - 复制任意条目后默认会关闭面板，并尽量回到打开前的前台应用；修改复制流时要同时检查 `MenuBarRootView` 的关闭回调和 `AppDelegate` 的前台应用恢复逻辑。
 - `Esc` 行为是两段式：搜索框有内容时清空搜索，否则关闭面板；改动搜索交互时不要破坏这条约定。
 - 更新检查不是只在启动时触发：启动后会强制检查一次，之后每次打开面板都会累计次数；当前达到 20 次时会再次检查，避免长时间不重启时错过新 release。
-- 更新服务会访问 GitHub Releases；如果修改 README 或隐私描述，需要与当前实现保持一致。
+- 更新服务默认优先访问 GitHub Releases；若 GitHub 不可达，会回退到 `macbar.app` 的官网更新信息与下载地址。修改 README、官网或隐私描述时，需要与当前实现保持一致。
 
 ## 本地化规则
 
@@ -116,7 +116,7 @@ git diff --stat origin/master..HEAD
 - 如果需要继续修改网站，先执行 `git switch codex/website-local`；网站部署到 Cloudflare Pages 不依赖 push GitHub。
 - 每次完成 `gh release create ...` 之后，必须先询问用户：是否要将新版本的 MacBar 同步到站点。
 - 只有在用户明确同意后，AI 才执行 `./scripts/sync_pages_release.sh` 并完成站点同步。
-- 该脚本会自动读取最新 GitHub Release，在本地分支 `codex/website-local` 更新 `website/downloads/` 和 `/download/latest`，然后部署到 Cloudflare Pages。
+- 该脚本会自动读取最新 GitHub Release，在本地分支 `codex/website-local` 更新 `website/downloads/`、`/download/latest` 和 `update.json`，然后部署到 Cloudflare Pages。
 - 该脚本只会在本地提交网站分支，不会 push `codex/website-local` 到 GitHub。
 - 运行脚本前，需确保本机已登录 Wrangler，或环境中存在可用的 `CLOUDFLARE_API_TOKEN`。
 

@@ -557,10 +557,7 @@ final class MacBarStore: ObservableObject {
             try await updateService.downloadAndInstall(release: release)
         } catch {
             isUpdateInstalling = false
-            // Fall back to opening the releases page
-            if let url = URL(string: "https://github.com/mikewang817/MacBar/releases/latest") {
-                NSWorkspace.shared.open(url)
-            }
+            NSWorkspace.shared.open(updateService.manualDownloadURL(for: release))
         }
     }
 

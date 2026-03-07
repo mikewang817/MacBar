@@ -73,6 +73,8 @@ version = tag[1:] if tag.startswith("v") else tag
 preferred = f"MacBar-v{version}.zip"
 asset_name = None
 asset_url = None
+release_name = release.get("name") or f"MacBar v{version}"
+release_page_url = release.get("html_url") or f"https://github.com/mikewang817/MacBar/releases/tag/{tag}"
 
 for asset in release.get("assets", []):
     if asset["name"] == preferred:
@@ -92,16 +94,20 @@ if asset_url is None or asset_name is None:
 
 print(tag)
 print(version)
+print(release_name)
+print(release_page_url)
 print(asset_name)
 print(asset_url)
 '
 )"
 
 TAG_NAME="$(printf '%s\n' "$RELEASE_INFO" | sed -n '1p')"
-ASSET_NAME="$(printf '%s\n' "$RELEASE_INFO" | sed -n '3p')"
-ASSET_URL="$(printf '%s\n' "$RELEASE_INFO" | sed -n '4p')"
+RELEASE_NAME="$(printf '%s\n' "$RELEASE_INFO" | sed -n '3p')"
+RELEASE_PAGE_URL="$(printf '%s\n' "$RELEASE_INFO" | sed -n '4p')"
+ASSET_NAME="$(printf '%s\n' "$RELEASE_INFO" | sed -n '5p')"
+ASSET_URL="$(printf '%s\n' "$RELEASE_INFO" | sed -n '6p')"
 
-if [[ -z "$TAG_NAME" || -z "$ASSET_NAME" || -z "$ASSET_URL" ]]; then
+if [[ -z "$TAG_NAME" || -z "$RELEASE_NAME" || -z "$RELEASE_PAGE_URL" || -z "$ASSET_NAME" || -z "$ASSET_URL" ]]; then
   echo "Failed to parse latest GitHub Release metadata." >&2
   exit 1
 fi
@@ -127,6 +133,27 @@ mkdir -p website/downloads
 curl -fL "$ASSET_URL" -o "website/downloads/${ASSET_NAME}"
 find website/downloads -maxdepth 1 -type f -name 'MacBar-v*.zip' ! -name "${ASSET_NAME}" -delete
 printf '/download/latest /downloads/%s 302\n' "${ASSET_NAME}" > website/_redirects
+MACBAR_TAG_NAME="$TAG_NAME" \
+MACBAR_RELEASE_NAME="$RELEASE_NAME" \
+MACBAR_RELEASE_PAGE_URL="$RELEASE_PAGE_URL" \
+MACBAR_ASSET_NAME="$ASSET_NAME" \
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = {
+    "version": os.environ["MACBAR_TAG_NAME"].lstrip("vV"),
+    "name": os.environ["MACBAR_RELEASE_NAME"],
+    "download_url": f'https://macbar.app/downloads/{os.environ["MACBAR_ASSET_NAME"]}',
+    "release_notes_url": os.environ["MACBAR_RELEASE_PAGE_URL"],
+}
+
+Path("website/update.json").write_text(
+    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Dry run complete. Latest release is ${TAG_NAME}."
@@ -134,7 +161,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-git add website/_redirects website/downloads
+git add website/_redirects website/update.json website/downloads
 if ! git diff --cached --quiet; then
   git commit -m "website: sync Cloudflare download to ${TAG_NAME}" >/dev/null
   echo "Committed website branch update for ${TAG_NAME} on ${WEBSITE_BRANCH}."
