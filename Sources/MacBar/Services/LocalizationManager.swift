@@ -19,6 +19,7 @@ struct LanguageOption: Identifiable, Hashable {
 
 final class LocalizationManager: ObservableObject {
     static let systemLanguageCode = "system"
+    private static let cachedLocalizationCodes = Bundle.module.localizations.filter { $0.lowercased() != "base" }
 
     @Published private(set) var selectedLanguageCode: String
     @Published private(set) var effectiveLanguageIdentifier: String = "en"
@@ -26,6 +27,8 @@ final class LocalizationManager: ObservableObject {
 
     private let defaults: UserDefaults
     private var cancellables: Set<AnyCancellable> = []
+    private var bundleCache: [String: Bundle] = [:]
+    private var localizedStringCache: [String: String] = [:]
 
     private enum Keys {
         static let selectedLanguageCode = "macbar.selectedLanguageCode"
@@ -63,15 +66,23 @@ final class LocalizationManager: ObservableObject {
     }
 
     func localized(_ key: String) -> String {
+        let cacheKey = "\(effectiveLanguageIdentifier)|\(key)"
+        if let cachedValue = localizedStringCache[cacheKey] {
+            return cachedValue
+        }
+
         let localizedBundle = bundle(for: effectiveLanguageIdentifier)
         let resolved = localizedBundle.localizedString(forKey: key, value: nil, table: nil)
 
         if resolved != key {
+            localizedStringCache[cacheKey] = resolved
             return resolved
         }
 
         let fallback = bundle(for: "en").localizedString(forKey: key, value: nil, table: nil)
-        return fallback == key ? key : fallback
+        let result = fallback == key ? key : fallback
+        localizedStringCache[cacheKey] = result
+        return result
     }
 
     func localized(_ key: String, _ arguments: CVarArg...) -> String {
@@ -135,7 +146,7 @@ final class LocalizationManager: ObservableObject {
     }
 
     private func availableLocalizationCodes() -> [String] {
-        Bundle.module.localizations.filter { $0.lowercased() != "base" }
+        Self.cachedLocalizationCodes
     }
 
     private func preferredSystemLanguageIdentifier() -> String {
@@ -218,11 +229,17 @@ final class LocalizationManager: ObservableObject {
     }
 
     private func bundle(for localizationIdentifier: String) -> Bundle {
+        if let cachedBundle = bundleCache[localizationIdentifier] {
+            return cachedBundle
+        }
+
         if let path = Bundle.module.path(forResource: localizationIdentifier, ofType: "lproj"),
            let localizedBundle = Bundle(path: path) {
+            bundleCache[localizationIdentifier] = localizedBundle
             return localizedBundle
         }
 
+        bundleCache[localizationIdentifier] = .module
         return .module
     }
 }

@@ -10,11 +10,22 @@ struct StoreFeedback {
 @MainActor
 final class MacBarStore: ObservableObject {
     @Published var activePanel: AppPanel = .clipboard
-    @Published var clipboardSearchText: String = ""
-    @Published private(set) var clipboardHistory: [ClipboardItem]
-    @Published private(set) var pinnedClipboardItemIDs: Set<UUID>
+    @Published var clipboardSearchText: String = "" {
+        didSet { rebuildDerivedClipboardCollections() }
+    }
+    @Published private(set) var clipboardHistory: [ClipboardItem] {
+        didSet {
+            rebuildClipboardMetadataCache()
+            rebuildDerivedClipboardCollections()
+        }
+    }
+    @Published private(set) var pinnedClipboardItemIDs: Set<UUID> {
+        didSet { rebuildDerivedClipboardCollections() }
+    }
     @Published private(set) var isClipboardMonitoringEnabled: Bool
-    @Published private(set) var clipboardOCRCache: [UUID: String] = [:]
+    @Published private(set) var clipboardOCRCache: [UUID: String] = [:] {
+        didSet { rebuildDerivedClipboardCollections() }
+    }
     @Published private(set) var pendingUpdateRelease: GitHubRelease? = nil
     @Published private(set) var isUpdateInstalling: Bool = false
 
@@ -29,6 +40,12 @@ final class MacBarStore: ObservableObject {
     private var isCheckingForUpdates = false
     private var imageDataCache: [String: Data] = [:]
     private var imagePreviewCache: [String: NSImage] = [:]
+    private var metadataByItemID: [UUID: ClipboardItemMetadata] = [:]
+    private var filteredClipboardItemsCache: [ClipboardItem] = []
+    private var pinnedClipboardItemsCache: [ClipboardItem] = []
+    private var recentClipboardItemsCache: [ClipboardItem] = []
+    private var localizedFileSearchLabel: String = ""
+    private var localizedImageSearchLabel: String = ""
     private let relativeDateTimeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
@@ -43,6 +60,15 @@ final class MacBarStore: ObservableObject {
     }
 
     private static let updateCheckPanelOpenThreshold = 20
+
+    private struct ClipboardItemMetadata {
+        let fileURLs: [URL]
+        let firstFileURL: URL?
+        let fileHelpText: String
+        let previewTitle: String
+        let previewSubtitle: String
+        let searchableText: String
+    }
 
     init(
         defaults: UserDefaults = .standard,
@@ -62,11 +88,16 @@ final class MacBarStore: ObservableObject {
         normalizeClipboardState()
         migrateLegacyClipboardImagesIfNeeded()
         purgeUnusedStoredImages()
+        rebuildClipboardMetadataCache()
+        refreshLocalizedSearchLabels()
+        rebuildDerivedClipboardCollections()
         configureClipboardMonitoring()
 
         localizationManager.$effectiveLanguageIdentifier
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
+                self?.refreshLocalizedSearchLabels()
+                self?.rebuildDerivedClipboardCollections()
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
@@ -85,15 +116,15 @@ final class MacBarStore: ObservableObject {
     }
 
     var pinnedClipboardItems: [ClipboardItem] {
-        filteredClipboardItems.filter { pinnedClipboardItemIDs.contains($0.id) }
+        pinnedClipboardItemsCache
     }
 
     var recentClipboardItems: [ClipboardItem] {
-        filteredClipboardItems.filter { !pinnedClipboardItemIDs.contains($0.id) }
+        recentClipboardItemsCache
     }
 
     var visibleClipboardItems: [ClipboardItem] {
-        filteredClipboardItems
+        filteredClipboardItemsCache
     }
 
     func localized(_ key: String) -> String {
@@ -321,28 +352,30 @@ final class MacBarStore: ObservableObject {
         return image
     }
 
-    private var filteredClipboardItems: [ClipboardItem] {
-        let query = clipboardSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return clipboardHistory
+    func clipboardFileURLs(for item: ClipboardItem) -> [URL] {
+        metadataByItemID[item.id]?.fileURLs ?? item.fileURLs
+    }
+
+    func clipboardFirstFileURL(for item: ClipboardItem) -> URL? {
+        metadataByItemID[item.id]?.firstFileURL ?? clipboardFileURLs(for: item).first
+    }
+
+    func clipboardFileHelpText(for item: ClipboardItem) -> String {
+        metadataByItemID[item.id]?.fileHelpText ?? ""
+    }
+
+    func clipboardDisplayTitle(for item: ClipboardItem) -> String {
+        if item.isImage {
+            return localized("ui.clipboard.item.image")
         }
 
-        return clipboardHistory.filter { item in
-            if item.isFile {
-                let fileLabel = localized("ui.clipboard.item.file").localizedCaseInsensitiveContains(query)
-                let fileNameMatch = item.fileURLs.contains { $0.lastPathComponent.localizedCaseInsensitiveContains(query) }
-                let filePathMatch = item.fileURLs.contains { $0.path.localizedCaseInsensitiveContains(query) }
-                return fileLabel || fileNameMatch || filePathMatch
-            }
+        let previewTitle = metadataByItemID[item.id]?.previewTitle ?? item.previewTitle
+        return previewTitle.isEmpty ? localized("ui.clipboard.item.empty") : previewTitle
+    }
 
-            if item.isImage {
-                let imageLabel = localized("ui.clipboard.item.image").localizedCaseInsensitiveContains(query)
-                let ocrMatch = clipboardOCRCache[item.id]?.localizedCaseInsensitiveContains(query) ?? false
-                return imageLabel || ocrMatch
-            }
-
-            return item.content.localizedCaseInsensitiveContains(query)
-        }
+    func clipboardDisplaySubtitle(for item: ClipboardItem) -> String {
+        let previewSubtitle = metadataByItemID[item.id]?.previewSubtitle ?? item.previewSubtitle
+        return previewSubtitle.isEmpty ? clipboardCapturedAtLabel(for: item) : previewSubtitle
     }
 
     private func configureClipboardMonitoring() {
@@ -617,6 +650,73 @@ final class MacBarStore: ObservableObject {
             message: arguments.isEmpty
                 ? localized(messageKey)
                 : localizationManager.localized(messageKey, arguments: arguments)
+        )
+    }
+
+    private func rebuildClipboardMetadataCache() {
+        metadataByItemID = Dictionary(
+            uniqueKeysWithValues: clipboardHistory.map { item in
+                (item.id, makeMetadata(for: item))
+            }
+        )
+    }
+
+    private func refreshLocalizedSearchLabels() {
+        localizedFileSearchLabel = localized("ui.clipboard.item.file")
+        localizedImageSearchLabel = localized("ui.clipboard.item.image")
+    }
+
+    private func rebuildDerivedClipboardCollections() {
+        let query = clipboardSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if query.isEmpty {
+            filteredClipboardItemsCache = clipboardHistory
+        } else {
+            filteredClipboardItemsCache = clipboardHistory.filter { item in
+                if item.isFile {
+                    let fileLabelMatch = localizedFileSearchLabel.localizedCaseInsensitiveContains(query)
+                    let searchableText = metadataByItemID[item.id]?.searchableText ?? ""
+                    return fileLabelMatch || searchableText.localizedCaseInsensitiveContains(query)
+                }
+
+                if item.isImage {
+                    let imageLabelMatch = localizedImageSearchLabel.localizedCaseInsensitiveContains(query)
+                    let ocrMatch = clipboardOCRCache[item.id]?.localizedCaseInsensitiveContains(query) ?? false
+                    return imageLabelMatch || ocrMatch
+                }
+
+                let searchableText = metadataByItemID[item.id]?.searchableText ?? item.content
+                return searchableText.localizedCaseInsensitiveContains(query)
+            }
+        }
+
+        pinnedClipboardItemsCache = filteredClipboardItemsCache.filter { pinnedClipboardItemIDs.contains($0.id) }
+        recentClipboardItemsCache = filteredClipboardItemsCache.filter { !pinnedClipboardItemIDs.contains($0.id) }
+    }
+
+    private func makeMetadata(for item: ClipboardItem) -> ClipboardItemMetadata {
+        let fileURLs = (item.fileURLStrings ?? []).compactMap(URL.init(string:))
+        let previewTitle = item.previewTitle
+        let previewSubtitle = item.previewSubtitle
+        let searchableText: String
+
+        if item.isFile {
+            let fileNames = fileURLs.map(\.lastPathComponent).joined(separator: "\n")
+            let filePaths = fileURLs.map(\.path).joined(separator: "\n")
+            searchableText = [fileNames, filePaths]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        } else {
+            searchableText = item.content
+        }
+
+        return ClipboardItemMetadata(
+            fileURLs: fileURLs,
+            firstFileURL: fileURLs.first,
+            fileHelpText: fileURLs.map(\.path).joined(separator: "\n"),
+            previewTitle: previewTitle,
+            previewSubtitle: previewSubtitle,
+            searchableText: searchableText
         )
     }
 

@@ -171,11 +171,13 @@ struct MenuBarRootView: View {
     // MARK: - Clipboard Preview Pane
 
     private func clipboardPreviewPane(item: ClipboardItem) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let fileURLs = store.clipboardFileURLs(for: item)
+
+        return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if item.isFile {
-                        ForEach(item.fileURLs, id: \.absoluteString) { url in
+                        ForEach(fileURLs, id: \.absoluteString) { url in
                             HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: "doc.fill")
                                     .foregroundStyle(.secondary)
@@ -187,11 +189,11 @@ struct MenuBarRootView: View {
                             }
                         }
 
-                        if !item.fileURLs.isEmpty {
+                        if !fileURLs.isEmpty {
                             Divider()
 
                             Button {
-                                NSWorkspace.shared.activateFileViewerSelecting(item.fileURLs)
+                                NSWorkspace.shared.activateFileViewerSelecting(fileURLs)
                             } label: {
                                 Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
                                     .font(.caption)
@@ -251,7 +253,7 @@ struct MenuBarRootView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 if item.isFile {
-                    Text(store.localized("ui.clipboard.item.fileCount", item.fileURLs.count))
+                    Text(store.localized("ui.clipboard.item.fileCount", fileURLs.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if item.characterCount > 0 {
@@ -463,15 +465,9 @@ struct MenuBarRootView: View {
     }
 
     private func clipboardRow(_ item: ClipboardItem, shortcutLabel: String?, isSelected: Bool) -> some View {
+        let fileURLs = store.clipboardFileURLs(for: item)
         let isPinned = store.isClipboardItemPinned(item.id)
-        let title: String
-        if item.isImage {
-            title = store.localized("ui.clipboard.item.image")
-        } else if item.previewTitle.isEmpty {
-            title = store.localized("ui.clipboard.item.empty")
-        } else {
-            title = item.previewTitle
-        }
+        let title = store.clipboardDisplayTitle(for: item)
 
         return HStack(spacing: 10) {
             Group {
@@ -495,8 +491,8 @@ struct MenuBarRootView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                if item.isFile, let fileURL = item.fileURLs.first {
-                    Text(fileTitle(for: item, firstFileURL: fileURL))
+                if item.isFile, let fileURL = fileURLs.first {
+                    Text(fileTitle(firstFileURL: fileURL, fileCount: fileURLs.count))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -566,7 +562,7 @@ struct MenuBarRootView: View {
         .onTapGesture {
             selectedClipboardItemID = item.id
         }
-        .help(item.isFile ? (item.fileURLs.map(\.path).joined(separator: "\n")) : "")
+        .help(item.isFile ? store.clipboardFileHelpText(for: item) : "")
     }
 
     // MARK: - Key Monitoring
@@ -1071,20 +1067,16 @@ struct MenuBarRootView: View {
         pendingDestructiveAction = nil
     }
 
-    private func fileTitle(for item: ClipboardItem, firstFileURL: URL) -> String {
-        guard item.fileURLs.count > 1 else {
+    private func fileTitle(firstFileURL: URL, fileCount: Int) -> String {
+        guard fileCount > 1 else {
             return firstFileURL.lastPathComponent
         }
 
-        return "\(firstFileURL.lastPathComponent) · \(store.localized("ui.clipboard.item.fileCount", item.fileURLs.count))"
+        return "\(firstFileURL.lastPathComponent) · \(store.localized("ui.clipboard.item.fileCount", fileCount))"
     }
 
     private func textRowSubtitle(for item: ClipboardItem) -> String {
-        if !item.previewSubtitle.isEmpty {
-            return item.previewSubtitle
-        }
-
-        return store.clipboardCapturedAtLabel(for: item)
+        store.clipboardDisplaySubtitle(for: item)
     }
 
     private func statusChip(systemImage: String, label: String, tint: Color) -> some View {
