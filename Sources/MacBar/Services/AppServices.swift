@@ -6,6 +6,7 @@ final class AppServices {
 
     let localizationManager: LocalizationManager
     let store: MacBarStore
+    let airDropService: AirDropService
     let ocrService: OCRService
 
     private init() {
@@ -17,6 +18,7 @@ final class AppServices {
             localizationManager: localizationManager,
             clipboardMonitor: clipboardMonitor
         )
+        self.airDropService = AirDropService()
         self.ocrService = OCRService()
     }
 }

@@ -13,6 +13,7 @@
 "ui.clipboard.item.characters" = "%d 个字符";
 "ui.clipboard.item.words" = "%d 个单词";
 "ui.clipboard.button.copy" = "复制";
+"ui.clipboard.button.airdrop" = "隔空投送";
 "ui.clipboard.button.clearSearch" = "清除搜索";
 "ui.clipboard.button.pauseMonitoring" = "暂停监听";
 "ui.clipboard.button.resumeMonitoring" = "恢复监听";

@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rootView = MenuBarRootView(
             store: services.store,
             localizationManager: services.localizationManager,
+            airDropService: services.airDropService,
             ocrService: services.ocrService,
             onPreferredSizeChange: { [weak self] size in
                 self?.updatePanelContentSize(size)

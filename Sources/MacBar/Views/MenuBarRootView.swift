@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarRootView: View {
     @ObservedObject var store: MacBarStore
     @ObservedObject var localizationManager: LocalizationManager
+    let airDropService: AirDropService
     let ocrService: OCRService
     let onPreferredSizeChange: ((CGSize) -> Void)?
     let onRequestClose: ((Bool) -> Void)?
@@ -192,14 +193,18 @@ struct MenuBarRootView: View {
                         if !fileURLs.isEmpty {
                             Divider()
 
-                            Button {
-                                NSWorkspace.shared.activateFileViewerSelecting(fileURLs)
-                            } label: {
-                                Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
-                                    .font(.caption)
+                            HStack(spacing: 8) {
+                                Button {
+                                    NSWorkspace.shared.activateFileViewerSelecting(fileURLs)
+                                } label: {
+                                    Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                airDropButton(for: item)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
                     } else if let image = store.clipboardImage(for: item) {
                         Image(nsImage: image)
@@ -215,6 +220,7 @@ struct MenuBarRootView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Spacer()
+                                airDropButton(for: item)
                                 Button {
                                     copyTextToPasteboard(ocrText)
                                 } label: {
@@ -235,6 +241,13 @@ struct MenuBarRootView: View {
                                 Text(store.localized("ui.ocr.processing"))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                Spacer()
+                                airDropButton(for: item)
+                            }
+                        } else {
+                            HStack {
+                                Spacer()
+                                airDropButton(for: item)
                             }
                         }
                     }
@@ -523,27 +536,31 @@ struct MenuBarRootView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button {
-                store.toggleClipboardItemPinned(item.id)
-            } label: {
-                Image(systemName: isPinned ? "pin.fill" : "pin")
-                    .foregroundStyle(isPinned ? .orange : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(
-                isPinned
-                    ? store.localized("ui.clipboard.help.unpin")
-                    : store.localized("ui.clipboard.help.pin")
-            )
+            HStack(spacing: 6) {
+                clipboardRowActionButton(
+                    systemImage: isPinned ? "pin.fill" : "pin",
+                    iconTint: isPinned ? .orange : .secondary,
+                    backgroundTint: isPinned ? .orange : nil,
+                    rotationDegrees: 45,
+                    help: isPinned
+                        ? store.localized("ui.clipboard.help.unpin")
+                        : store.localized("ui.clipboard.help.pin")
+                ) {
+                    store.toggleClipboardItemPinned(item.id)
+                }
 
-            Button {
-                copyClipboardItemToPasteboard(item.id)
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 13, weight: .semibold))
+                airDropButton(for: item, compact: true)
+
+                clipboardRowActionButton(
+                    systemImage: "doc.on.doc",
+                    iconTint: .white,
+                    backgroundTint: .accentColor,
+                    isProminent: true,
+                    help: store.localized("ui.clipboard.button.copy")
+                ) {
+                    copyClipboardItemToPasteboard(item.id)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
         }
         .padding(10)
         .background(
@@ -559,6 +576,11 @@ struct MenuBarRootView: View {
                 .stroke(isSelected ? Color.accentColor.opacity(0.95) : .clear, lineWidth: 1.2)
         )
         .contentShape(Rectangle())
+        .onHover { isHovering in
+            if isHovering {
+                selectedClipboardItemID = item.id
+            }
+        }
         .onTapGesture {
             selectedClipboardItemID = item.id
         }
@@ -1077,6 +1099,133 @@ struct MenuBarRootView: View {
 
     private func textRowSubtitle(for item: ClipboardItem) -> String {
         store.clipboardDisplaySubtitle(for: item)
+    }
+
+    private func supportsAirDrop(for item: ClipboardItem) -> Bool {
+        if item.isFile {
+            return !store.clipboardFileURLs(for: item).isEmpty
+        }
+
+        if item.isImage {
+            return store.clipboardImage(for: item) != nil
+        }
+
+        return false
+    }
+
+    private func canAirDropClipboardItem(_ item: ClipboardItem) -> Bool {
+        if item.isFile {
+            return airDropService.canSendFiles(store.clipboardFileURLs(for: item))
+        }
+
+        guard let image = store.clipboardImage(for: item) else {
+            return false
+        }
+
+        return airDropService.canSendImage(image)
+    }
+
+    private func airDropClipboardItem(_ item: ClipboardItem) {
+        if item.isFile {
+            _ = airDropService.sendFiles(store.clipboardFileURLs(for: item))
+            return
+        }
+
+        guard let image = store.clipboardImage(for: item) else {
+            return
+        }
+
+        _ = airDropService.sendImage(image)
+    }
+
+    @ViewBuilder
+    private func airDropButton(for item: ClipboardItem, compact: Bool = false) -> some View {
+        let title = store.localized("ui.clipboard.button.airdrop")
+
+        if compact {
+            let canAirDrop = canAirDropClipboardItem(item)
+
+            Button {
+                airDropClipboardItem(item)
+            } label: {
+                clipboardRowActionLabel(
+                    systemImage: "paperplane.fill",
+                    iconTint: canAirDrop ? .blue : .secondary,
+                    backgroundTint: canAirDrop ? .blue : nil
+                )
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .disabled(!canAirDrop)
+            .help(title)
+        } else {
+            Button {
+                airDropClipboardItem(item)
+            } label: {
+                Label(title, systemImage: "square.and.arrow.up")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!canAirDropClipboardItem(item))
+            .help(title)
+        }
+    }
+
+    private func clipboardRowActionButton(
+        systemImage: String,
+        iconTint: Color,
+        backgroundTint: Color? = nil,
+        isProminent: Bool = false,
+        rotationDegrees: Double = 0,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            clipboardRowActionLabel(
+                systemImage: systemImage,
+                iconTint: iconTint,
+                backgroundTint: backgroundTint,
+                isProminent: isProminent,
+                rotationDegrees: rotationDegrees
+            )
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private func clipboardRowActionLabel(
+        systemImage: String,
+        iconTint: Color,
+        backgroundTint: Color? = nil,
+        isProminent: Bool = false,
+        rotationDegrees: Double = 0
+    ) -> some View {
+        let fillStyle: AnyShapeStyle
+        let strokeColor: Color
+
+        if let backgroundTint {
+            fillStyle = AnyShapeStyle(backgroundTint.opacity(isProminent ? 0.94 : 0.14))
+            strokeColor = backgroundTint.opacity(isProminent ? 0.24 : 0.18)
+        } else {
+            fillStyle = AnyShapeStyle(.thinMaterial)
+            strokeColor = Color.white.opacity(0.12)
+        }
+
+        return Image(systemName: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(iconTint)
+            .rotationEffect(.degrees(rotationDegrees))
+            .frame(width: 30, height: 26)
+            .background {
+                Capsule()
+                    .fill(fillStyle)
+            }
+            .overlay {
+                Capsule()
+                    .stroke(strokeColor, lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(isProminent ? 0.08 : 0.04), radius: 3, y: 1)
     }
 
     private func statusChip(systemImage: String, label: String, tint: Color) -> some View {
