@@ -173,11 +173,24 @@ struct MenuBarRootView: View {
 
     private func clipboardPreviewPane(item: ClipboardItem) -> some View {
         let fileURLs = store.clipboardFileURLs(for: item)
+        let previewImage = store.clipboardPreviewImage(for: item)
 
         return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if item.isFile {
+                        if let previewImage {
+                            clipboardPreviewImageSection(
+                                item: item,
+                                image: previewImage,
+                                showsAirDropAction: false
+                            )
+
+                            if !fileURLs.isEmpty {
+                                Divider()
+                            }
+                        }
+
                         ForEach(fileURLs, id: \.absoluteString) { url in
                             HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: "doc.fill")
@@ -206,50 +219,12 @@ struct MenuBarRootView: View {
                                 airDropButton(for: item)
                             }
                         }
-                    } else if let image = store.clipboardImage(for: item) {
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-
-                        Divider()
-
-                        if let ocrText = store.clipboardOCRCache[item.id] {
-                            HStack {
-                                Text(store.localized("ui.ocr.label"))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                airDropButton(for: item)
-                                Button {
-                                    copyTextToPasteboard(ocrText)
-                                } label: {
-                                    Label(store.localized("ui.clipboard.button.copy"), systemImage: "doc.on.doc")
-                                        .font(.caption)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.mini)
-                            }
-                            Text(ocrText)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.primary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else if runningOCRItemIDs.contains(item.id) || pendingOCRItemIDs.contains(item.id) {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text(store.localized("ui.ocr.processing"))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                airDropButton(for: item)
-                            }
-                        } else {
-                            HStack {
-                                Spacer()
-                                airDropButton(for: item)
-                            }
-                        }
+                    } else if let previewImage {
+                        clipboardPreviewImageSection(
+                            item: item,
+                            image: previewImage,
+                            showsAirDropAction: true
+                        )
                     }
 
                     if !item.content.isEmpty {
@@ -296,6 +271,62 @@ struct MenuBarRootView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func clipboardPreviewImageSection(
+        item: ClipboardItem,
+        image: NSImage,
+        showsAirDropAction: Bool
+    ) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+
+        Divider()
+
+        if let ocrText = store.clipboardOCRCache[item.id] {
+            HStack {
+                Text(store.localized("ui.ocr.label"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if showsAirDropAction {
+                    airDropButton(for: item)
+                }
+                Button {
+                    copyTextToPasteboard(ocrText)
+                } label: {
+                    Label(store.localized("ui.clipboard.button.copy"), systemImage: "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+
+            Text(ocrText)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if runningOCRItemIDs.contains(item.id) || pendingOCRItemIDs.contains(item.id) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(store.localized("ui.ocr.processing"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if showsAirDropAction {
+                    Spacer()
+                    airDropButton(for: item)
+                }
+            }
+        } else if showsAirDropAction {
+            HStack {
+                Spacer()
+                airDropButton(for: item)
+            }
         }
     }
 
@@ -933,7 +964,7 @@ struct MenuBarRootView: View {
     @MainActor
     private func enqueueOCRForUnprocessedImages(prioritizing prioritizedItemID: UUID?) {
         let unprocessedImageItems = store.clipboardHistory.filter {
-            $0.isImage && store.clipboardOCRCache[$0.id] == nil
+            itemSupportsOCR($0) && store.clipboardOCRCache[$0.id] == nil
         }
         enqueueOCR(for: unprocessedImageItems, prioritizing: prioritizedItemID)
     }
@@ -945,14 +976,14 @@ struct MenuBarRootView: View {
         }
 
         if let prioritizedItemID,
-           items.contains(where: { $0.id == prioritizedItemID && $0.isImage }),
+           items.contains(where: { $0.id == prioritizedItemID && itemSupportsOCR($0) }),
            store.clipboardOCRCache[prioritizedItemID] == nil,
            !runningOCRItemIDs.contains(prioritizedItemID) {
             pendingOCRItemIDs.removeAll { $0 == prioritizedItemID }
             pendingOCRItemIDs.insert(prioritizedItemID, at: 0)
         }
 
-        for item in items where item.isImage {
+        for item in items where itemSupportsOCR(item) {
             guard store.clipboardOCRCache[item.id] == nil else {
                 continue
             }
@@ -986,7 +1017,19 @@ struct MenuBarRootView: View {
                 break
             }
 
-            let recognizedText = try? await ocrService.recognize(imageData: job.imageData)
+            var recognizedChunks: [String] = []
+            for imageData in job.imageDataList {
+                guard let recognizedText = try? await ocrService.recognize(imageData: imageData) else {
+                    continue
+                }
+
+                let trimmedText = recognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedText.isEmpty {
+                    recognizedChunks.append(trimmedText)
+                }
+            }
+
+            let recognizedText = recognizedChunks.isEmpty ? nil : recognizedChunks.joined(separator: "\n\n")
             await MainActor.run {
                 finishOCRJob(itemID: job.itemID, recognizedText: recognizedText)
             }
@@ -1001,7 +1044,7 @@ struct MenuBarRootView: View {
     }
 
     @MainActor
-    private func nextOCRJob() -> (itemID: UUID, imageData: Data)? {
+    private func nextOCRJob() -> (itemID: UUID, imageDataList: [Data])? {
         while let nextItemID = pendingOCRItemIDs.first {
             pendingOCRItemIDs.removeFirst()
 
@@ -1017,12 +1060,13 @@ struct MenuBarRootView: View {
                 continue
             }
 
-            guard let imageData = store.clipboardImageData(for: item) else {
+            let imageDataList = store.clipboardOCRImageDataList(for: item)
+            guard !imageDataList.isEmpty else {
                 continue
             }
 
             runningOCRItemIDs.insert(nextItemID)
-            return (nextItemID, imageData)
+            return (nextItemID, imageDataList)
         }
 
         return nil
@@ -1099,6 +1143,10 @@ struct MenuBarRootView: View {
 
     private func textRowSubtitle(for item: ClipboardItem) -> String {
         store.clipboardDisplaySubtitle(for: item)
+    }
+
+    private func itemSupportsOCR(_ item: ClipboardItem) -> Bool {
+        store.clipboardHasPreviewImage(for: item)
     }
 
     private func supportsAirDrop(for item: ClipboardItem) -> Bool {

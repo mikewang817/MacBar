@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 struct StoreFeedback {
     let title: String
@@ -40,6 +41,8 @@ final class MacBarStore: ObservableObject {
     private var isCheckingForUpdates = false
     private var imageDataCache: [String: Data] = [:]
     private var imagePreviewCache: [String: NSImage] = [:]
+    private var fileImageDataCache: [String: Data] = [:]
+    private var fileImagePreviewCache: [String: NSImage] = [:]
     private var metadataByItemID: [UUID: ClipboardItemMetadata] = [:]
     private var filteredClipboardItemsCache: [ClipboardItem] = []
     private var pinnedClipboardItemsCache: [ClipboardItem] = []
@@ -64,6 +67,8 @@ final class MacBarStore: ObservableObject {
     private struct ClipboardItemMetadata {
         let fileURLs: [URL]
         let firstFileURL: URL?
+        let imageFileURLs: [URL]
+        let firstImageFileURL: URL?
         let fileHelpText: String
         let previewTitle: String
         let previewSubtitle: String
@@ -350,6 +355,35 @@ final class MacBarStore: ObservableObject {
             imagePreviewCache[cacheKey] = image
         }
         return image
+    }
+
+    func clipboardHasPreviewImage(for item: ClipboardItem) -> Bool {
+        if item.isImage {
+            return true
+        }
+
+        return metadataByItemID[item.id]?.firstImageFileURL != nil
+    }
+
+    func clipboardPreviewImage(for item: ClipboardItem) -> NSImage? {
+        if item.isImage {
+            return clipboardImage(for: item)
+        }
+
+        guard let imageFileURL = metadataByItemID[item.id]?.firstImageFileURL else {
+            return nil
+        }
+
+        return previewImage(forFileURL: imageFileURL)
+    }
+
+    func clipboardOCRImageDataList(for item: ClipboardItem) -> [Data] {
+        if let imageData = clipboardImageData(for: item) {
+            return [imageData]
+        }
+
+        let imageFileURLs = metadataByItemID[item.id]?.imageFileURLs ?? []
+        return imageFileURLs.compactMap(loadImageDataFromFile)
     }
 
     func clipboardFileURLs(for item: ClipboardItem) -> [URL] {
@@ -675,8 +709,11 @@ final class MacBarStore: ObservableObject {
             filteredClipboardItemsCache = clipboardHistory.filter { item in
                 if item.isFile {
                     let fileLabelMatch = localizedFileSearchLabel.localizedCaseInsensitiveContains(query)
+                    let ocrMatch = clipboardOCRCache[item.id]?.localizedCaseInsensitiveContains(query) ?? false
                     let searchableText = metadataByItemID[item.id]?.searchableText ?? ""
-                    return fileLabelMatch || searchableText.localizedCaseInsensitiveContains(query)
+                    return fileLabelMatch
+                        || searchableText.localizedCaseInsensitiveContains(query)
+                        || ocrMatch
                 }
 
                 if item.isImage {
@@ -696,6 +733,7 @@ final class MacBarStore: ObservableObject {
 
     private func makeMetadata(for item: ClipboardItem) -> ClipboardItemMetadata {
         let fileURLs = (item.fileURLStrings ?? []).compactMap(URL.init(string:))
+        let imageFileURLs = fileURLs.filter(isImageFileURL)
         let previewTitle = item.previewTitle
         let previewSubtitle = item.previewSubtitle
         let searchableText: String
@@ -713,6 +751,8 @@ final class MacBarStore: ObservableObject {
         return ClipboardItemMetadata(
             fileURLs: fileURLs,
             firstFileURL: fileURLs.first,
+            imageFileURLs: imageFileURLs,
+            firstImageFileURL: imageFileURLs.first,
             fileHelpText: fileURLs.map(\.path).joined(separator: "\n"),
             previewTitle: previewTitle,
             previewSubtitle: previewSubtitle,
@@ -779,6 +819,17 @@ final class MacBarStore: ObservableObject {
     private func removeStoredImages(for removedItems: [ClipboardItem]) {
         let remainingStorageKeys = Set(clipboardHistory.compactMap(\.imageStorageKey))
         let removedStorageKeys = Set(removedItems.compactMap(\.imageStorageKey))
+        let remainingFileImageCacheKeys = Set(
+            metadataByItemID.values
+                .flatMap(\.imageFileURLs)
+                .map(fileImageCacheKey(for:))
+        )
+        let removedFileImageCacheKeys = Set(
+            removedItems
+                .flatMap(\.fileURLs)
+                .filter(isImageFileURL)
+                .map(fileImageCacheKey(for:))
+        )
 
         for storageKey in removedStorageKeys where !remainingStorageKeys.contains(storageKey) {
             clipboardImageStore.removeImage(for: storageKey)
@@ -793,6 +844,55 @@ final class MacBarStore: ObservableObject {
             imageDataCache.removeValue(forKey: cacheKey)
             imagePreviewCache.removeValue(forKey: cacheKey)
         }
+
+        for cacheKey in removedFileImageCacheKeys where !remainingFileImageCacheKeys.contains(cacheKey) {
+            fileImageDataCache.removeValue(forKey: cacheKey)
+            fileImagePreviewCache.removeValue(forKey: cacheKey)
+        }
+    }
+
+    private func isImageFileURL(_ url: URL) -> Bool {
+        if let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+            return contentType.conforms(to: .image)
+        }
+
+        guard let fileType = UTType(filenameExtension: url.pathExtension) else {
+            return false
+        }
+
+        return fileType.conforms(to: .image)
+    }
+
+    private func fileImageCacheKey(for url: URL) -> String {
+        "file:\(url.standardizedFileURL.absoluteString)"
+    }
+
+    private func loadImageDataFromFile(_ url: URL) -> Data? {
+        let cacheKey = fileImageCacheKey(for: url)
+        if let cachedData = fileImageDataCache[cacheKey] {
+            return cachedData
+        }
+
+        guard let imageData = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+            return nil
+        }
+
+        fileImageDataCache[cacheKey] = imageData
+        return imageData
+    }
+
+    private func previewImage(forFileURL url: URL) -> NSImage? {
+        let cacheKey = fileImageCacheKey(for: url)
+        if let cachedImage = fileImagePreviewCache[cacheKey] {
+            return cachedImage
+        }
+
+        guard let imageData = loadImageDataFromFile(url), let image = NSImage(data: imageData) else {
+            return nil
+        }
+
+        fileImagePreviewCache[cacheKey] = image
+        return image
     }
 
     private func purgeUnusedStoredImages() {
