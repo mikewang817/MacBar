@@ -56,6 +56,7 @@
 "ui.settings.option.closeAfterCopy" = "Close the panel after copying";
 "ui.settings.option.restoreAfterCopy" = "Restore the previous app after copying";
 "ui.settings.option.showPreviewPane" = "Show the preview pane";
+"ui.settings.option.launchAtLogin" = "Launch at login";
 "ui.settings.option.monitorClipboard" = "Enable clipboard monitoring";
 "ui.settings.option.maxHistoryItems" = "Maximum history items";
 "ui.settings.option.maxImageCache" = "Maximum image cache size";
@@ -63,6 +64,10 @@
 "ui.settings.option.autoCheckUpdates" = "Automatically check for updates";
 "ui.settings.caption.maxHistoryItems" = "Older unpinned items are removed automatically when the limit is reached.";
 "ui.settings.caption.maxImageCache" = "Older unpinned screenshot/image entries are removed when stored image cache exceeds this limit.";
+"ui.settings.caption.launchAtLogin.enabled" = "MacBar will reopen automatically when you sign in.";
+"ui.settings.caption.launchAtLogin.disabled" = "MacBar stays out of Login Items until you turn this back on.";
+"ui.settings.caption.launchAtLogin.requiresApproval" = "macOS is waiting for approval in Login Items before MacBar can launch automatically.";
+"ui.settings.caption.launchAtLogin.unavailable" = "Login Items can only be configured from the signed MacBar app bundle.";
 "ui.settings.value.historyItems" = "%d items";
 "ui.settings.value.imageCacheMB" = "%d MB";
 "ui.settings.ocrMode.automatic" = "All";

@@ -56,6 +56,7 @@
 "ui.settings.option.closeAfterCopy" = "复制后关闭面板";
 "ui.settings.option.restoreAfterCopy" = "复制后恢复到之前的应用";
 "ui.settings.option.showPreviewPane" = "显示预览面板";
+"ui.settings.option.launchAtLogin" = "开机时自动启动";
 "ui.settings.option.monitorClipboard" = "启用剪贴板监听";
 "ui.settings.option.maxHistoryItems" = "最多保留的历史条目";
 "ui.settings.option.maxImageCache" = "图片缓存上限";
@@ -63,6 +64,10 @@
 "ui.settings.option.autoCheckUpdates" = "自动检查更新";
 "ui.settings.caption.maxHistoryItems" = "达到上限后，会自动移除最旧的未置顶条目。";
 "ui.settings.caption.maxImageCache" = "超过这个上限后，会自动移除最旧的未置顶截图/图片条目。";
+"ui.settings.caption.launchAtLogin.enabled" = "登录 macOS 后，MacBar 会自动重新启动。";
+"ui.settings.caption.launchAtLogin.disabled" = "MacBar 当前不会出现在登录项里，重新打开这个选项后才会自动启动。";
+"ui.settings.caption.launchAtLogin.requiresApproval" = "macOS 正在等待你在“登录项”里批准 MacBar 自动启动。";
+"ui.settings.caption.launchAtLogin.unavailable" = "只有从已签名的 MacBar 应用包启动时，才能配置登录项。";
 "ui.settings.value.historyItems" = "%d 条";
 "ui.settings.value.imageCacheMB" = "%d MB";
 "ui.settings.ocrMode.automatic" = "全部";

@@ -8,6 +8,11 @@ struct StoreFeedback {
     let message: String
 }
 
+enum ClipboardResolvedOCRSource: Equatable {
+    case clipboardImageData
+    case fileURL(URL)
+}
+
 @MainActor
 final class MacBarStore: ObservableObject {
     @Published var activePanel: AppPanel = .clipboard
@@ -17,8 +22,7 @@ final class MacBarStore: ObservableObject {
     }
     @Published private(set) var clipboardHistory: [ClipboardItem] {
         didSet {
-            rebuildClipboardMetadataCache()
-            rebuildFileAvailabilityCache()
+            rebuildResolvedClipboardItemState()
             rebuildDerivedClipboardCollections()
         }
     }
@@ -29,6 +33,7 @@ final class MacBarStore: ObservableObject {
     @Published private(set) var clipboardOCRCache: [UUID: String] = [:] {
         didSet { rebuildDerivedClipboardCollections() }
     }
+    @Published private(set) var launchAtLoginStatus: LaunchAtLoginStatus = .unavailable
     @Published private(set) var pendingUpdateRelease: GitHubRelease? = nil
     @Published private(set) var isUpdateInstalling: Bool = false
     @Published private(set) var isCheckingForUpdates: Bool = false
@@ -37,6 +42,7 @@ final class MacBarStore: ObservableObject {
     private let localizationManager: LocalizationManager
     private let clipboardMonitor: ClipboardMonitor
     private let clipboardImageStore: ClipboardImageStore
+    private let launchAtLoginService: LaunchAtLoginService
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
@@ -45,8 +51,7 @@ final class MacBarStore: ObservableObject {
     private var imagePreviewCache: [String: NSImage] = [:]
     private var fileImageDataCache: [String: Data] = [:]
     private var fileImagePreviewCache: [String: NSImage] = [:]
-    private var metadataByItemID: [UUID: ClipboardItemMetadata] = [:]
-    private var fileAvailabilityByItemID: [UUID: ClipboardFileAvailability] = [:]
+    private var resolvedStateByItemID: [UUID: ClipboardItemResolvedState] = [:]
     private var lastFileAvailabilityRefreshAt: Date?
     private var filteredClipboardItemsCache: [ClipboardItem] = []
     private var pinnedClipboardItemsCache: [ClipboardItem] = []
@@ -70,21 +75,54 @@ final class MacBarStore: ObservableObject {
     private static let updateCheckPanelOpenThreshold = 20
     private static let fileAvailabilityRefreshInterval: TimeInterval = 1.0
 
-    private struct ClipboardItemMetadata {
+    private struct ClipboardItemResolvedState: Equatable {
         let fileURLs: [URL]
         let firstFileURL: URL?
-        let imageFileURLs: [URL]
-        let firstImageFileURL: URL?
+        let availableFileURLs: [URL]
+        let missingFileURLs: [URL]
+        let availableImageFileURLs: [URL]
         let fileHelpText: String
         let previewTitle: String
         let previewSubtitle: String
         let searchableText: String
-    }
+        let isImageDataItem: Bool
+        let hasStoredImageData: Bool
 
-    private struct ClipboardFileAvailability: Equatable {
-        let availableFileURLs: [URL]
-        let missingFileURLs: [URL]
-        let availableImageFileURLs: [URL]
+        var isFileItem: Bool {
+            !fileURLs.isEmpty
+        }
+
+        var isUnavailableFileItem: Bool {
+            isFileItem && availableFileURLs.isEmpty
+        }
+
+        var previewImageFileURL: URL? {
+            availableImageFileURLs.first
+        }
+
+        var hasPreviewImage: Bool {
+            hasStoredImageData || previewImageFileURL != nil
+        }
+
+        var ocrSources: [ClipboardResolvedOCRSource] {
+            if hasStoredImageData {
+                return [.clipboardImageData]
+            }
+
+            return availableImageFileURLs.map(ClipboardResolvedOCRSource.fileURL)
+        }
+
+        var canCopy: Bool {
+            if isFileItem {
+                return !availableFileURLs.isEmpty
+            }
+
+            if isImageDataItem {
+                return hasStoredImageData
+            }
+
+            return true
+        }
     }
 
     static func sharedDefaults() -> UserDefaults {
@@ -97,12 +135,14 @@ final class MacBarStore: ObservableObject {
         defaults: UserDefaults = .standard,
         localizationManager: LocalizationManager = LocalizationManager(),
         clipboardMonitor: ClipboardMonitor = ClipboardMonitor(),
-        clipboardImageStore: ClipboardImageStore = ClipboardImageStore()
+        clipboardImageStore: ClipboardImageStore = ClipboardImageStore(),
+        launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService()
     ) {
         self.defaults = defaults
         self.localizationManager = localizationManager
         self.clipboardMonitor = clipboardMonitor
         self.clipboardImageStore = clipboardImageStore
+        self.launchAtLoginService = launchAtLoginService
         self.settings = Self.loadAppSettings(defaults: defaults)
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
@@ -113,11 +153,11 @@ final class MacBarStore: ObservableObject {
         migrateLegacyClipboardImagesIfNeeded()
         enforceRetentionPolicies(persistChanges: true)
         purgeUnusedStoredImages()
-        rebuildClipboardMetadataCache()
-        rebuildFileAvailabilityCache()
+        rebuildResolvedClipboardItemState()
         refreshLocalizedSearchLabels()
         rebuildDerivedClipboardCollections()
         configureClipboardMonitoring()
+        syncLaunchAtLoginPreference()
 
         localizationManager.$effectiveLanguageIdentifier
             .receive(on: RunLoop.main)
@@ -165,6 +205,10 @@ final class MacBarStore: ObservableObject {
         settings.showsPreviewPane
     }
 
+    var launchesAtLogin: Bool {
+        settings.launchesAtLogin
+    }
+
     var ocrMode: ClipboardOCRMode {
         settings.ocrMode
     }
@@ -197,6 +241,13 @@ final class MacBarStore: ObservableObject {
         updateSettings {
             $0.showsPreviewPane = isEnabled
         }
+    }
+
+    func setLaunchesAtLogin(_ isEnabled: Bool) {
+        updateSettings {
+            $0.launchesAtLogin = isEnabled
+        }
+        syncLaunchAtLoginPreference()
     }
 
     func setMaxHistoryItems(_ value: Int) {
@@ -425,7 +476,8 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardImageData(for item: ClipboardItem) -> Data? {
-        guard clipboardIsImageDataItem(item) else {
+        let resolvedState = resolvedState(for: item)
+        guard resolvedState.isImageDataItem, resolvedState.hasStoredImageData else {
             return nil
         }
 
@@ -468,23 +520,21 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardHasPreviewImage(for item: ClipboardItem) -> Bool {
-        if clipboardIsImageDataItem(item) {
-            return true
-        }
-
-        return !clipboardImageFileURLs(for: item).isEmpty
+        resolvedState(for: item).hasPreviewImage
     }
 
     func clipboardIsFileItem(_ item: ClipboardItem) -> Bool {
-        !clipboardFileURLs(for: item).isEmpty
+        resolvedState(for: item).isFileItem
     }
 
     func clipboardPreviewImage(for item: ClipboardItem) -> NSImage? {
-        if clipboardIsImageDataItem(item) {
+        let resolvedState = resolvedState(for: item)
+
+        if resolvedState.isImageDataItem {
             return clipboardImage(for: item)
         }
 
-        guard let imageFileURL = clipboardImageFileURLs(for: item).first else {
+        guard let imageFileURL = resolvedState.previewImageFileURL else {
             return nil
         }
 
@@ -492,36 +542,32 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardImageFileURLs(for item: ClipboardItem) -> [URL] {
-        fileAvailability(for: item).availableImageFileURLs
+        resolvedState(for: item).availableImageFileURLs
     }
 
-    func clipboardOCRSourceCount(for item: ClipboardItem) -> Int {
-        if clipboardIsImageDataItem(item) {
-            return 1
-        }
-
-        return clipboardImageFileURLs(for: item).count
+    func clipboardOCRSources(for item: ClipboardItem) -> [ClipboardResolvedOCRSource] {
+        resolvedState(for: item).ocrSources
     }
 
-    func clipboardOCRFileURL(for item: ClipboardItem, at index: Int) -> URL? {
-        let imageFileURLs = clipboardImageFileURLs(for: item)
-        guard imageFileURLs.indices.contains(index) else {
+    func clipboardOCRSource(for item: ClipboardItem, at index: Int) -> ClipboardResolvedOCRSource? {
+        let ocrSources = resolvedState(for: item).ocrSources
+        guard ocrSources.indices.contains(index) else {
             return nil
         }
 
-        return imageFileURLs[index]
+        return ocrSources[index]
     }
 
     func clipboardFileURLs(for item: ClipboardItem) -> [URL] {
-        metadataByItemID[item.id]?.fileURLs ?? item.fileURLs
+        resolvedState(for: item).fileURLs
     }
 
     func clipboardAvailableFileURLs(for item: ClipboardItem) -> [URL] {
-        fileAvailability(for: item).availableFileURLs
+        resolvedState(for: item).availableFileURLs
     }
 
     func clipboardMissingFileURLs(for item: ClipboardItem) -> [URL] {
-        fileAvailability(for: item).missingFileURLs
+        resolvedState(for: item).missingFileURLs
     }
 
     func clipboardHasMissingFiles(_ item: ClipboardItem) -> Bool {
@@ -529,19 +575,11 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardIsFileItemUnavailable(_ item: ClipboardItem) -> Bool {
-        clipboardIsFileItem(item) && clipboardAvailableFileURLs(for: item).isEmpty
+        resolvedState(for: item).isUnavailableFileItem
     }
 
     func clipboardCanCopy(_ item: ClipboardItem) -> Bool {
-        if clipboardIsFileItem(item) {
-            return !clipboardAvailableFileURLs(for: item).isEmpty
-        }
-
-        if clipboardIsImageDataItem(item) {
-            return clipboardImageData(for: item) != nil
-        }
-
-        return true
+        resolvedState(for: item).canCopy
     }
 
     func refreshClipboardFileAvailability(force: Bool = false) {
@@ -552,23 +590,23 @@ final class MacBarStore: ObservableObject {
             return
         }
 
-        let updatedAvailability = makeFileAvailabilityCache()
+        let updatedResolvedState = makeResolvedStateCache()
         lastFileAvailabilityRefreshAt = now
 
-        guard updatedAvailability != fileAvailabilityByItemID else {
+        guard updatedResolvedState != resolvedStateByItemID else {
             return
         }
 
-        fileAvailabilityByItemID = updatedAvailability
+        resolvedStateByItemID = updatedResolvedState
         objectWillChange.send()
     }
 
     func clipboardFirstFileURL(for item: ClipboardItem) -> URL? {
-        metadataByItemID[item.id]?.firstFileURL ?? clipboardFileURLs(for: item).first
+        resolvedState(for: item).firstFileURL
     }
 
     func clipboardFileHelpText(for item: ClipboardItem) -> String {
-        metadataByItemID[item.id]?.fileHelpText ?? ""
+        resolvedState(for: item).fileHelpText
     }
 
     func clipboardDisplayTitle(for item: ClipboardItem) -> String {
@@ -576,12 +614,12 @@ final class MacBarStore: ObservableObject {
             return localized("ui.clipboard.item.image")
         }
 
-        let previewTitle = metadataByItemID[item.id]?.previewTitle ?? item.previewTitle
+        let previewTitle = resolvedState(for: item).previewTitle
         return previewTitle.isEmpty ? localized("ui.clipboard.item.empty") : previewTitle
     }
 
     func clipboardDisplaySubtitle(for item: ClipboardItem) -> String {
-        let previewSubtitle = metadataByItemID[item.id]?.previewSubtitle ?? item.previewSubtitle
+        let previewSubtitle = resolvedState(for: item).previewSubtitle
         return previewSubtitle.isEmpty ? clipboardCapturedAtLabel(for: item) : previewSubtitle
     }
 
@@ -776,6 +814,14 @@ final class MacBarStore: ObservableObject {
 
         settings = updatedSettings
         persistSettings()
+    }
+
+    private func syncLaunchAtLoginPreference() {
+        launchAtLoginStatus = launchAtLoginService.setEnabled(settings.launchesAtLogin)
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginStatus = launchAtLoginService.currentStatus()
     }
 
     private func serializedPinnedClipboardIDs() -> [String] {
@@ -1075,23 +1121,19 @@ final class MacBarStore: ObservableObject {
         )
     }
 
-    private func rebuildClipboardMetadataCache() {
-        metadataByItemID = Dictionary(
+    private func rebuildResolvedClipboardItemState() {
+        resolvedStateByItemID = Dictionary(
             uniqueKeysWithValues: clipboardHistory.map { item in
-                (item.id, makeMetadata(for: item))
+                (item.id, makeResolvedState(for: item))
             }
         )
-    }
-
-    private func rebuildFileAvailabilityCache() {
-        fileAvailabilityByItemID = makeFileAvailabilityCache()
         lastFileAvailabilityRefreshAt = Date()
     }
 
-    private func makeFileAvailabilityCache() -> [UUID: ClipboardFileAvailability] {
+    private func makeResolvedStateCache() -> [UUID: ClipboardItemResolvedState] {
         Dictionary(
             uniqueKeysWithValues: clipboardHistory.map { item in
-                (item.id, makeFileAvailability(for: item))
+                (item.id, makeResolvedState(for: item))
             }
         )
     }
@@ -1111,7 +1153,7 @@ final class MacBarStore: ObservableObject {
                 if item.isFile {
                     let fileLabelMatch = localizedFileSearchLabel.localizedCaseInsensitiveContains(query)
                     let ocrMatch = clipboardOCRCache[item.id]?.localizedCaseInsensitiveContains(query) ?? false
-                    let searchableText = metadataByItemID[item.id]?.searchableText ?? ""
+                    let searchableText = resolvedStateByItemID[item.id]?.searchableText ?? ""
                     return fileLabelMatch
                         || searchableText.localizedCaseInsensitiveContains(query)
                         || ocrMatch
@@ -1123,7 +1165,7 @@ final class MacBarStore: ObservableObject {
                     return imageLabelMatch || ocrMatch
                 }
 
-                let searchableText = metadataByItemID[item.id]?.searchableText ?? item.content
+                let searchableText = resolvedStateByItemID[item.id]?.searchableText ?? item.content
                 return searchableText.localizedCaseInsensitiveContains(query)
             }
         }
@@ -1132,49 +1174,20 @@ final class MacBarStore: ObservableObject {
         recentClipboardItemsCache = filteredClipboardItemsCache.filter { !pinnedClipboardItemIDs.contains($0.id) }
     }
 
-    private func makeMetadata(for item: ClipboardItem) -> ClipboardItemMetadata {
+    private func resolvedState(for item: ClipboardItem) -> ClipboardItemResolvedState {
+        if let cachedState = resolvedStateByItemID[item.id] {
+            return cachedState
+        }
+
+        let state = makeResolvedState(for: item)
+        resolvedStateByItemID[item.id] = state
+        return state
+    }
+
+    private func makeResolvedState(for item: ClipboardItem) -> ClipboardItemResolvedState {
         let fileURLs = (item.fileURLStrings ?? []).compactMap(URL.init(string:))
         let imageFileURLs = fileURLs.filter(isImageFileURL)
-        let previewTitle = item.previewTitle
-        let previewSubtitle = item.previewSubtitle
-        let searchableText: String
-
-        if item.isFile {
-            let fileNames = fileURLs.map(\.lastPathComponent).joined(separator: "\n")
-            let filePaths = fileURLs.map(\.path).joined(separator: "\n")
-            searchableText = [fileNames, filePaths]
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
-        } else {
-            searchableText = item.content
-        }
-
-        return ClipboardItemMetadata(
-            fileURLs: fileURLs,
-            firstFileURL: fileURLs.first,
-            imageFileURLs: imageFileURLs,
-            firstImageFileURL: imageFileURLs.first,
-            fileHelpText: fileURLs.map(\.path).joined(separator: "\n"),
-            previewTitle: previewTitle,
-            previewSubtitle: previewSubtitle,
-            searchableText: searchableText
-        )
-    }
-
-    private func fileAvailability(for item: ClipboardItem) -> ClipboardFileAvailability {
-        if let cachedAvailability = fileAvailabilityByItemID[item.id] {
-            return cachedAvailability
-        }
-
-        let availability = makeFileAvailability(for: item)
-        fileAvailabilityByItemID[item.id] = availability
-        return availability
-    }
-
-    private func makeFileAvailability(for item: ClipboardItem) -> ClipboardFileAvailability {
-        let metadata = metadataByItemID[item.id]
-        let fileURLs = metadata?.fileURLs ?? item.fileURLs
-        let imageFileURLSet = Set((metadata?.imageFileURLs ?? []).map(\.standardizedFileURL))
+        let imageFileURLSet = Set(imageFileURLs.map(\.standardizedFileURL))
         var availableFileURLs: [URL] = []
         var missingFileURLs: [URL] = []
         var availableImageFileURLs: [URL] = []
@@ -1192,10 +1205,44 @@ final class MacBarStore: ObservableObject {
             }
         }
 
-        return ClipboardFileAvailability(
+        let previewTitle = item.previewTitle
+        let previewSubtitle = item.previewSubtitle
+        let searchableText: String
+        let isImageDataItem = item.isImage && fileURLs.isEmpty
+        let hasStoredImageData: Bool
+
+        if item.isFile {
+            let fileNames = fileURLs.map(\.lastPathComponent).joined(separator: "\n")
+            let filePaths = fileURLs.map(\.path).joined(separator: "\n")
+            searchableText = [fileNames, filePaths]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        } else {
+            searchableText = item.content
+        }
+
+        if isImageDataItem {
+            if let storageKey = item.imageStorageKey {
+                hasStoredImageData = clipboardImageStore.fileExists(for: storageKey)
+            } else {
+                hasStoredImageData = item.imageTIFFData != nil
+            }
+        } else {
+            hasStoredImageData = false
+        }
+
+        return ClipboardItemResolvedState(
+            fileURLs: fileURLs,
+            firstFileURL: fileURLs.first,
             availableFileURLs: availableFileURLs,
             missingFileURLs: missingFileURLs,
-            availableImageFileURLs: availableImageFileURLs
+            availableImageFileURLs: availableImageFileURLs,
+            fileHelpText: fileURLs.map(\.path).joined(separator: "\n"),
+            previewTitle: previewTitle,
+            previewSubtitle: previewSubtitle,
+            searchableText: searchableText,
+            isImageDataItem: isImageDataItem,
+            hasStoredImageData: hasStoredImageData
         )
     }
 
@@ -1259,8 +1306,8 @@ final class MacBarStore: ObservableObject {
         let remainingStorageKeys = Set(clipboardHistory.compactMap(\.imageStorageKey))
         let removedStorageKeys = Set(removedItems.compactMap(\.imageStorageKey))
         let remainingFileImageCacheKeys = Set(
-            metadataByItemID.values
-                .flatMap(\.imageFileURLs)
+            resolvedStateByItemID.values
+                .flatMap(\.availableImageFileURLs)
                 .map(fileImageCacheKey(for:))
         )
         let removedFileImageCacheKeys = Set(
@@ -1347,7 +1394,7 @@ final class MacBarStore: ObservableObject {
     }
 
     private func clipboardIsImageDataItem(_ item: ClipboardItem) -> Bool {
-        item.isImage && !clipboardIsFileItem(item)
+        resolvedState(for: item).isImageDataItem
     }
 
     private func fileReferenceExists(_ url: URL) -> Bool {
