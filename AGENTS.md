@@ -90,11 +90,17 @@ docs/
 - 用户可见字符串不要直接硬编码，除应用名 `MacBar` 和系统按钮 `OK` 外，统一走 `store.localized(...)` 或 `localizationManager.localized(...)`。
 - 快捷键、按键名、菜单动作等文案要符合目标语言的真实使用习惯，不要机械直译；例如中文场景优先写 `Enter`、`CMD + 删除键`，而不是把按键名称字面翻成“输入”“命令删除”。
 - 快捷键提示目前由 `MacBarStore` 按语言风格动态生成；如果调整这类文案，优先改生成逻辑，不要只改某一种语言的整句翻译。
-- 新增文案时，至少同步更新：
+- MacBar 当前只维护 7 种界面语言：`en`、`zh-Hans`、`de`、`fr`、`ja`、`ko`、`ar`；不要重新引入其他 `.lproj` 目录，除非用户明确要求扩语种。
+- 新增文案时，必须同步更新以下 7 个文件：
   - `Sources/MacBar/Resources/en.lproj/Localizable.strings`
   - `Sources/MacBar/Resources/zh-Hans.lproj/Localizable.strings`
-- 其余语言由 `scripts/generate_localizations.py` 生成；仅在确实新增 key 后再跑脚本。
-- 语言列表来源于 `Bundle.module.localizations`，不要手写静态语言枚举。
+  - `Sources/MacBar/Resources/de.lproj/Localizable.strings`
+  - `Sources/MacBar/Resources/fr.lproj/Localizable.strings`
+  - `Sources/MacBar/Resources/ja.lproj/Localizable.strings`
+  - `Sources/MacBar/Resources/ko.lproj/Localizable.strings`
+  - `Sources/MacBar/Resources/ar.lproj/Localizable.strings`
+- 不要再使用 `scripts/generate_localizations.py` 维护 UI 多语言；当前约定是直接维护上述语言文件。
+- 语言列表是产品定义，不再直接暴露 `Bundle.module.localizations` 的全部结果；设置页中的语言选项应与上述 7 种语言保持一致，并支持“跟随系统”。
 
 ## 修改建议
 
@@ -104,6 +110,7 @@ docs/
 - 涉及图片条目展示时，优先复用 store 提供的缓存读取接口，并继续保持列表与预览共用同一份图片来源。
 - 涉及文件或图片条目操作按钮时，注意预览区和列表行现在都支持隔空投送，交互应保持一致。
 - 涉及底部快捷键提示时，注意当前不是直接显示本地化整句，而是由 `MacBarStore.clipboardCopyShortcutHint()` / `clipboardDeleteShortcutHint()` 根据语言习惯生成。
+- 涉及语言切换时，注意当前入口在设置页，不在底部工具栏；修改语言相关 UI 时不要恢复成独立 footer 菜单。
 - 涉及预览面板尺寸时，要同步考虑 `MenuBarRootView.preferredPanelSize` 和 `AppDelegate` 的 panel size 更新逻辑。
 - 涉及资源或本地化包时，确认 `Package.swift` 的 `resources: [.process("Resources")]` 仍然满足需求。
 - 当前版本没有配置导入/导出功能，除非用户明确要求，否则不要重新引入相关入口或模型。
@@ -225,6 +232,6 @@ cd "$(git rev-parse --show-toplevel)"
 ## 交付前检查
 
 - 先跑 `swift build`
-- 如果改了本地化 key，检查英文和简体中文是否都已补齐
+- 如果改了本地化 key，检查 7 个受支持语言文件是否都已补齐
 - 如果改了热键、面板、OCR、复制后返回原应用、更新流程，优先在 Xcode 中做一次手动验证
 - 如仓库里存在与你任务无关的脏改动，不要回滚它们

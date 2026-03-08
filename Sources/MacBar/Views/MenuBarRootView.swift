@@ -13,12 +13,16 @@ struct MenuBarRootView: View {
     @State private var feedbackDismissTask: Task<Void, Never>?
     @State private var pendingDestructiveAction: ClipboardDestructiveAction?
     @State private var selectedClipboardItemID: UUID?
+    @State private var hoveredClipboardItemID: UUID?
+    @State private var isHoverSelectionSuspended: Bool = false
     @State private var pendingOCRItemIDs: [UUID] = []
     @State private var runningOCRItemIDs: Set<UUID> = []
     @State private var ocrSourceIndexByItemID: [UUID: Int] = [:]
     @State private var ocrTextChunksByItemID: [UUID: [String]] = [:]
     @State private var completedOCRItemIDs: Set<UUID> = []
     @State private var ocrWorkerTask: Task<Void, Never>?
+    @State private var hoverSelectionTask: Task<Void, Never>?
+    @State private var hoverExitTask: Task<Void, Never>?
     @State private var keyDownMonitor: Any?
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
@@ -26,6 +30,12 @@ struct MenuBarRootView: View {
     private let mainWidth: CGFloat = 460
     private let previewWidth: CGFloat = 320
     private let panelHeight: CGFloat = 620
+    private let hoverSelectionDelay: Duration = .milliseconds(45)
+    private let hoverExitDelay: Duration = .milliseconds(70)
+
+    private var isShowingSettings: Bool {
+        store.activePanel == .settings
+    }
 
     private var preferredPanelSize: CGSize {
         let previewPaneWidth: CGFloat = showPreview ? (previewWidth + 1) : 0
@@ -33,12 +43,19 @@ struct MenuBarRootView: View {
     }
 
     private var showPreview: Bool {
-        selectedClipboardItem != nil
+        !isShowingSettings && store.showsPreviewPane && selectedClipboardItem != nil
     }
 
     private var selectedClipboardItem: ClipboardItem? {
+        guard store.activePanel == .clipboard else {
+            return nil
+        }
         guard let selectedClipboardItemID else { return nil }
         return clipboardNavigationItems.first { $0.id == selectedClipboardItemID }
+    }
+
+    private var highlightedClipboardItemID: UUID? {
+        hoveredClipboardItemID ?? selectedClipboardItemID
     }
 
     private enum ClipboardDestructiveAction: String {
@@ -103,7 +120,7 @@ struct MenuBarRootView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        clipboardPanelBody
+                        activePanelBody
                             .padding(.vertical, 2)
                     }
                     .onAppear { scrollProxy = proxy }
@@ -127,6 +144,7 @@ struct MenuBarRootView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onAppear {
+            store.refreshClipboardFileAvailability(force: true)
             onPreferredSizeChange?(preferredPanelSize)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 focusedField = true
@@ -148,7 +166,10 @@ struct MenuBarRootView: View {
             enqueueOCRForUnprocessedImages(prioritizing: selectedClipboardItemID)
         }
         .onChange(of: selectedClipboardItemID) {
-            enqueueSelectedImageOCRIfNeeded()
+            reprioritizeSelectedClipboardItemForOCR()
+        }
+        .onChange(of: store.ocrMode) {
+            refreshOCRProcessing()
         }
         .onDisappear {
             focusedField = false
@@ -157,11 +178,17 @@ struct MenuBarRootView: View {
             transientFeedback = nil
             ocrWorkerTask?.cancel()
             ocrWorkerTask = nil
+            hoverSelectionTask?.cancel()
+            hoverExitTask?.cancel()
+            hoverExitTask = nil
+            hoverSelectionTask = nil
+            hoveredClipboardItemID = nil
             pendingOCRItemIDs.removeAll()
             runningOCRItemIDs.removeAll()
             ocrSourceIndexByItemID.removeAll()
             ocrTextChunksByItemID.removeAll()
             completedOCRItemIDs.removeAll()
+            store.activePanel = .clipboard
             removeKeyMonitor()
         }
         .onMoveCommand { direction in
@@ -190,6 +217,15 @@ struct MenuBarRootView: View {
             }
         } message: {
             Text(store.localized($0.messageKey))
+        }
+    }
+
+    @ViewBuilder
+    private var activePanelBody: some View {
+        if store.activePanel == .settings {
+            settingsPanelBody
+        } else {
+            clipboardPanelBody
         }
     }
 
@@ -264,7 +300,12 @@ struct MenuBarRootView: View {
 
                             HStack(spacing: 8) {
                                 Button {
-                                    NSWorkspace.shared.activateFileViewerSelecting(availableFileURLs)
+                                    store.refreshClipboardFileAvailability(force: true)
+                                    let refreshedURLs = store.clipboardAvailableFileURLs(for: item)
+                                    guard !refreshedURLs.isEmpty else {
+                                        return
+                                    }
+                                    NSWorkspace.shared.activateFileViewerSelecting(refreshedURLs)
                                 } label: {
                                     Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
                                         .font(.caption)
@@ -394,6 +435,16 @@ struct MenuBarRootView: View {
     // MARK: - Header
 
     private var header: some View {
+        Group {
+            if store.activePanel == .settings {
+                settingsHeader
+            } else {
+                clipboardHeader
+            }
+        }
+    }
+
+    private var clipboardHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 Text("MacBar")
@@ -446,6 +497,31 @@ struct MenuBarRootView: View {
 
                 Spacer(minLength: 0)
             }
+        }
+    }
+
+    private var settingsHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(store.localized("ui.settings.title"))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    store.activePanel = .clipboard
+                } label: {
+                    Label(store.localized("ui.settings.button.back"), systemImage: "chevron.left")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            Text(store.localized("ui.settings.subtitle"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -539,6 +615,207 @@ struct MenuBarRootView: View {
         .padding(.vertical, 28)
     }
 
+    private var settingsPanelBody: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            settingsSection(
+                title: store.localized("ui.language.menu")
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker(
+                        store.localized("ui.language.menu"),
+                        selection: selectedLanguageCodeBinding
+                    ) {
+                        ForEach(localizationManager.languageOptions) { option in
+                            Text(languageLabel(for: option)).tag(option.code)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Text(store.localized("ui.settings.language.footer"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            settingsSection(
+                title: store.localized("ui.settings.section.behavior"),
+                footer: store.localized("ui.settings.section.behavior.footer")
+            ) {
+                Toggle(
+                    store.localized("ui.settings.option.closeAfterCopy"),
+                    isOn: closesPanelAfterCopyBinding
+                )
+
+                Toggle(
+                    store.localized("ui.settings.option.restoreAfterCopy"),
+                    isOn: restoresPreviousAppAfterCopyBinding
+                )
+                .disabled(!store.closesPanelAfterCopy)
+
+                Toggle(
+                    store.localized("ui.settings.option.showPreviewPane"),
+                    isOn: showsPreviewPaneBinding
+                )
+            }
+
+            settingsSection(
+                title: store.localized("ui.settings.section.capture"),
+                footer: store.localized("ui.settings.section.capture.footer")
+            ) {
+                Toggle(
+                    store.localized("ui.settings.option.monitorClipboard"),
+                    isOn: clipboardMonitoringBinding
+                )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Stepper(
+                        value: maxHistoryItemsBinding,
+                        in: AppSettings.minimumHistoryItemLimit...AppSettings.maximumHistoryItemLimit,
+                        step: AppSettings.historyItemStep
+                    ) {
+                        settingsValueRow(
+                            title: store.localized("ui.settings.option.maxHistoryItems"),
+                            value: store.localized("ui.settings.value.historyItems", store.settings.maxHistoryItems)
+                        )
+                    }
+
+                    Text(store.localized("ui.settings.caption.maxHistoryItems"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Stepper(
+                        value: maxStoredImageCacheSizeBinding,
+                        in: AppSettings.minimumImageStorageLimitMB...AppSettings.maximumImageStorageLimitMB,
+                        step: AppSettings.imageStorageStepMB
+                    ) {
+                        settingsValueRow(
+                            title: store.localized("ui.settings.option.maxImageCache"),
+                            value: store.localized("ui.settings.value.imageCacheMB", store.settings.maxStoredImageCacheSizeMB)
+                        )
+                    }
+
+                    Text(store.localized("ui.settings.caption.maxImageCache"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            settingsSection(
+                title: store.localized("ui.settings.section.ocr"),
+                footer: store.localized("ui.settings.section.ocr.footer")
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(store.localized("ui.settings.option.ocrMode"))
+                        .font(.subheadline.weight(.medium))
+
+                    Picker("", selection: ocrModeBinding) {
+                        ForEach(ClipboardOCRMode.allCases) { mode in
+                            Text(ocrModeLabel(for: mode)).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+
+            settingsSection(
+                title: store.localized("ui.settings.section.update"),
+                footer: store.localized("ui.settings.section.update.footer")
+            ) {
+                Toggle(
+                    store.localized("ui.settings.option.autoCheckUpdates"),
+                    isOn: automaticUpdateCheckBinding
+                )
+
+                HStack(spacing: 10) {
+                    Button {
+                        triggerManualUpdateCheck()
+                    } label: {
+                        Label(
+                            store.localized("ui.settings.button.checkUpdates"),
+                            systemImage: "arrow.clockwise.circle"
+                        )
+                        .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.isCheckingForUpdates)
+
+                    if store.isCheckingForUpdates {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(store.localized("feedback.update.checking"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let release = store.pendingUpdateRelease {
+                        Text(store.localized("ui.settings.update.available", release.versionNumber))
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if store.pendingUpdateRelease != nil {
+                        Button {
+                            Task { await store.installUpdate() }
+                        } label: {
+                            Label(store.localized("ui.settings.button.installUpdate"), systemImage: "arrow.down.circle.fill")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(.green)
+                    }
+                }
+            }
+        }
+    }
+
+    private func settingsSection<Content: View>(
+        title: String,
+        footer: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                content()
+            }
+
+            if let footer, !footer.isEmpty {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.quaternary.opacity(0.22))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private func settingsValueRow(title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+            Spacer(minLength: 10)
+            Text(value)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private static let pinnedShortcutLetters: [Character] = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     private func clipboardPinnedSection(title: String, items: [ClipboardItem]) -> some View {
@@ -550,7 +827,7 @@ struct MenuBarRootView: View {
                 let shortcutLabel = index < Self.pinnedShortcutLetters.count
                     ? "⌘\(Self.pinnedShortcutLetters[index])"
                     : nil
-                clipboardRow(item, shortcutLabel: shortcutLabel, isSelected: selectedClipboardItemID == item.id)
+                clipboardRow(item, shortcutLabel: shortcutLabel, isSelected: highlightedClipboardItemID == item.id)
                     .id(item.id)
             }
         }
@@ -563,7 +840,7 @@ struct MenuBarRootView: View {
 
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 let shortcutLabel = index < 9 ? "⌘\(index + 1)" : nil
-                clipboardRow(item, shortcutLabel: shortcutLabel, isSelected: selectedClipboardItemID == item.id)
+                clipboardRow(item, shortcutLabel: shortcutLabel, isSelected: highlightedClipboardItemID == item.id)
                     .id(item.id)
             }
         }
@@ -690,12 +967,11 @@ struct MenuBarRootView: View {
         .opacity(isUnavailableFileItem ? 0.6 : 1)
         .contentShape(Rectangle())
         .onHover { isHovering in
-            if isHovering {
-                selectedClipboardItemID = item.id
-            }
+            handleClipboardRowHover(isHovering: isHovering, itemID: item.id)
         }
         .onTapGesture {
-            selectedClipboardItemID = item.id
+            isHoverSelectionSuspended = false
+            commitClipboardSelection(item.id, clearsHoverState: false)
         }
         .help(isFileItem ? store.clipboardFileHelpText(for: item) : "")
     }
@@ -744,6 +1020,14 @@ struct MenuBarRootView: View {
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
+
+        if store.activePanel == .settings {
+            if flags.isEmpty, event.keyCode == 53 {
+                store.activePanel = .clipboard
+                return true
+            }
+            return false
+        }
 
         // ⌘+Delete / ⌘+Backspace: always delete selected item regardless of search text
         if flags == [.command], isDeleteKey {
@@ -804,6 +1088,10 @@ struct MenuBarRootView: View {
     }
 
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
+        guard store.activePanel == .clipboard else {
+            return
+        }
+
         switch direction {
         case .up:
             moveClipboardSelection(delta: -1)
@@ -817,6 +1105,7 @@ struct MenuBarRootView: View {
     private func moveClipboardSelection(delta: Int) {
         let items = clipboardNavigationItems
         guard !items.isEmpty else {
+            cancelHoverSelection()
             selectedClipboardItemID = nil
             return
         }
@@ -825,10 +1114,9 @@ struct MenuBarRootView: View {
             .flatMap { id in items.firstIndex(where: { $0.id == id }) } ?? 0
         let nextIndex = max(0, min(items.count - 1, currentIndex + delta))
         let newID = items[nextIndex].id
-        selectedClipboardItemID = newID
-        withAnimation {
-            scrollProxy?.scrollTo(newID, anchor: .center)
-        }
+        suspendHoverSelection()
+        commitClipboardSelection(newID, clearsHoverState: false)
+        scrollProxy?.scrollTo(newID)
     }
 
     private func copySelectedClipboardItem() {
@@ -839,6 +1127,9 @@ struct MenuBarRootView: View {
 
         let selected = selectedClipboardItemID
             .flatMap { id in items.first(where: { $0.id == id }) } ?? items[0]
+        if store.clipboardIsFileItem(selected) {
+            store.refreshClipboardFileAvailability(force: true)
+        }
         guard store.clipboardCanCopy(selected) else {
             return
         }
@@ -858,10 +1149,11 @@ struct MenuBarRootView: View {
 
         let updatedItems = clipboardNavigationItems
         if updatedItems.isEmpty {
+            cancelHoverSelection()
             selectedClipboardItemID = nil
         } else {
             let nextIndex = min(currentIndex, updatedItems.count - 1)
-            selectedClipboardItemID = updatedItems[nextIndex].id
+            commitClipboardSelection(updatedItems[nextIndex].id, clearsHoverState: true)
         }
     }
 
@@ -871,6 +1163,9 @@ struct MenuBarRootView: View {
             return
         }
 
+        if store.clipboardIsFileItem(items[index]) {
+            store.refreshClipboardFileAvailability(force: true)
+        }
         guard store.clipboardCanCopy(items[index]) else {
             return
         }
@@ -883,6 +1178,9 @@ struct MenuBarRootView: View {
             return
         }
 
+        if store.clipboardIsFileItem(items[index]) {
+            store.refreshClipboardFileAvailability(force: true)
+        }
         guard store.clipboardCanCopy(items[index]) else {
             return
         }
@@ -892,8 +1190,14 @@ struct MenuBarRootView: View {
     private func syncSelectedClipboardItem() {
         let items = clipboardNavigationItems
         guard !items.isEmpty else {
+            cancelHoverSelection()
             selectedClipboardItemID = nil
             return
+        }
+
+        if let hoveredClipboardItemID,
+           !items.contains(where: { $0.id == hoveredClipboardItemID }) {
+            cancelHoverSelection()
         }
 
         if let selectedClipboardItemID,
@@ -902,6 +1206,95 @@ struct MenuBarRootView: View {
         }
 
         selectedClipboardItemID = items[0].id
+    }
+
+    private func handleClipboardRowHover(isHovering: Bool, itemID: UUID) {
+        guard store.activePanel == .clipboard else {
+            return
+        }
+
+        if isHovering {
+            guard !isHoverSelectionSuspended else {
+                return
+            }
+
+            hoverExitTask?.cancel()
+            hoverExitTask = nil
+            hoveredClipboardItemID = itemID
+            scheduleHoverSelectionCommit(for: itemID)
+            return
+        }
+
+        if isHoverSelectionSuspended {
+            isHoverSelectionSuspended = false
+            return
+        }
+
+        guard hoveredClipboardItemID == itemID else {
+            return
+        }
+
+        scheduleHoverSelectionExit(for: itemID)
+    }
+
+    private func scheduleHoverSelectionCommit(for itemID: UUID) {
+        guard selectedClipboardItemID != itemID else {
+            hoverSelectionTask?.cancel()
+            hoverSelectionTask = nil
+            return
+        }
+
+        hoverSelectionTask?.cancel()
+        hoverSelectionTask = Task { @MainActor in
+            try? await Task.sleep(for: hoverSelectionDelay)
+            guard !Task.isCancelled, hoveredClipboardItemID == itemID else {
+                return
+            }
+
+            commitClipboardSelection(itemID, clearsHoverState: false)
+        }
+    }
+
+    private func cancelHoverSelection() {
+        hoverSelectionTask?.cancel()
+        hoverExitTask?.cancel()
+        hoverExitTask = nil
+        hoverSelectionTask = nil
+        hoveredClipboardItemID = nil
+    }
+
+    private func suspendHoverSelection() {
+        isHoverSelectionSuspended = true
+        cancelHoverSelection()
+    }
+
+    private func commitClipboardSelection(_ itemID: UUID, clearsHoverState: Bool) {
+        if clearsHoverState {
+            cancelHoverSelection()
+        } else {
+            hoverSelectionTask?.cancel()
+            hoverSelectionTask = nil
+            hoverExitTask?.cancel()
+            hoverExitTask = nil
+        }
+
+        guard selectedClipboardItemID != itemID else {
+            return
+        }
+
+        selectedClipboardItemID = itemID
+    }
+
+    private func scheduleHoverSelectionExit(for itemID: UUID) {
+        hoverExitTask?.cancel()
+        hoverExitTask = Task { @MainActor in
+            try? await Task.sleep(for: hoverExitDelay)
+            guard !Task.isCancelled, hoveredClipboardItemID == itemID else {
+                return
+            }
+
+            cancelHoverSelection()
+        }
     }
 
     // MARK: - Footer
@@ -914,8 +1307,8 @@ struct MenuBarRootView: View {
             }
 
             HStack {
-                languageMenu
                 clipboardActionsMenu
+                panelToggleButton
 
                 Spacer()
 
@@ -954,26 +1347,6 @@ struct MenuBarRootView: View {
         }
     }
 
-    private var languageMenu: some View {
-        Menu {
-            ForEach(localizationManager.languageOptions) { option in
-                Button {
-                    localizationManager.selectLanguage(code: option.code)
-                } label: {
-                    if option.code == localizationManager.selectedLanguageCode {
-                        Label(languageLabel(for: option), systemImage: "checkmark")
-                    } else {
-                        Text(languageLabel(for: option))
-                    }
-                }
-            }
-        } label: {
-            Label(store.localized("ui.language.menu"), systemImage: "globe")
-        }
-        .menuStyle(.borderlessButton)
-        .controlSize(.small)
-    }
-
     private var clipboardActionsMenu: some View {
         Menu {
             Button {
@@ -1007,6 +1380,84 @@ struct MenuBarRootView: View {
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
+    }
+
+    private var panelToggleButton: some View {
+        Button {
+            store.activePanel = store.activePanel == .settings ? .clipboard : .settings
+        } label: {
+            Label(
+                store.activePanel == .settings
+                    ? store.localized("ui.settings.button.back")
+                    : store.localized("ui.settings.button.open"),
+                systemImage: store.activePanel == .settings ? "chevron.left.circle" : "gearshape"
+            )
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+    }
+
+    private var closesPanelAfterCopyBinding: Binding<Bool> {
+        Binding(
+            get: { store.closesPanelAfterCopy },
+            set: { store.setClosesPanelAfterCopy($0) }
+        )
+    }
+
+    private var restoresPreviousAppAfterCopyBinding: Binding<Bool> {
+        Binding(
+            get: { store.restoresPreviousAppAfterCopy },
+            set: { store.setRestoresPreviousAppAfterCopy($0) }
+        )
+    }
+
+    private var showsPreviewPaneBinding: Binding<Bool> {
+        Binding(
+            get: { store.showsPreviewPane },
+            set: { store.setShowsPreviewPane($0) }
+        )
+    }
+
+    private var clipboardMonitoringBinding: Binding<Bool> {
+        Binding(
+            get: { store.isClipboardMonitoringEnabled },
+            set: { store.setClipboardMonitoringEnabled($0) }
+        )
+    }
+
+    private var maxHistoryItemsBinding: Binding<Int> {
+        Binding(
+            get: { store.settings.maxHistoryItems },
+            set: { store.setMaxHistoryItems($0) }
+        )
+    }
+
+    private var maxStoredImageCacheSizeBinding: Binding<Int> {
+        Binding(
+            get: { store.settings.maxStoredImageCacheSizeMB },
+            set: { store.setMaxStoredImageCacheSizeMB($0) }
+        )
+    }
+
+    private var ocrModeBinding: Binding<ClipboardOCRMode> {
+        Binding(
+            get: { store.ocrMode },
+            set: { store.setOCRMode($0) }
+        )
+    }
+
+    private var automaticUpdateCheckBinding: Binding<Bool> {
+        Binding(
+            get: { store.automaticallyChecksForUpdates },
+            set: { store.setAutomaticallyChecksForUpdates($0) }
+        )
+    }
+
+    private var selectedLanguageCodeBinding: Binding<String> {
+        Binding(
+            get: { localizationManager.selectedLanguageCode },
+            set: { localizationManager.selectLanguage(code: $0) }
+        )
     }
 
     private func presentFeedback(_ feedback: StoreFeedback?) {
@@ -1044,16 +1495,78 @@ struct MenuBarRootView: View {
     }
 
     @MainActor
-    private func enqueueSelectedImageOCRIfNeeded() {
-        guard let selectedClipboardItem else {
+    private func reprioritizeSelectedClipboardItemForOCR() {
+        guard store.activePanel == .clipboard else {
             return
         }
 
-        enqueueOCR(for: [selectedClipboardItem], prioritizing: selectedClipboardItem.id)
+        guard store.ocrMode != .disabled else {
+            stopOCRProcessing(resetCompleted: false)
+            return
+        }
+
+        guard let selectedClipboardItem else {
+            if store.ocrMode == .selectedOnly {
+                stopOCRProcessing(resetCompleted: false)
+            }
+            return
+        }
+
+        guard itemSupportsOCR(selectedClipboardItem) else {
+            if store.ocrMode == .selectedOnly {
+                stopOCRProcessing(resetCompleted: false)
+            }
+            return
+        }
+
+        let selectedItemID = selectedClipboardItem.id
+        guard store.clipboardOCRCache[selectedItemID] == nil, !completedOCRItemIDs.contains(selectedItemID) else {
+            return
+        }
+
+        switch store.ocrMode {
+        case .disabled:
+            stopOCRProcessing(resetCompleted: false)
+        case .selectedOnly:
+            stopOCRProcessing(resetCompleted: false)
+            ocrSourceIndexByItemID[selectedItemID] = ocrSourceIndexByItemID[selectedItemID] ?? 0
+            pendingOCRItemIDs = [selectedItemID]
+            startOCRWorkerIfNeeded()
+        case .automatic:
+            pendingOCRItemIDs.removeAll { $0 == selectedItemID }
+            if !runningOCRItemIDs.contains(selectedItemID) {
+                ocrSourceIndexByItemID[selectedItemID] = ocrSourceIndexByItemID[selectedItemID] ?? 0
+                pendingOCRItemIDs.insert(selectedItemID, at: 0)
+            }
+            startOCRWorkerIfNeeded()
+        }
     }
 
     @MainActor
     private func enqueueOCRForUnprocessedImages(prioritizing prioritizedItemID: UUID?) {
+        switch store.ocrMode {
+        case .disabled:
+            stopOCRProcessing(resetCompleted: false)
+            return
+        case .selectedOnly:
+            stopOCRProcessing(resetCompleted: false)
+
+            guard
+                let prioritizedItemID,
+                let prioritizedItem = store.clipboardHistory.first(where: { $0.id == prioritizedItemID }),
+                itemSupportsOCR(prioritizedItem),
+                store.clipboardOCRCache[prioritizedItem.id] == nil,
+                !completedOCRItemIDs.contains(prioritizedItem.id)
+            else {
+                return
+            }
+
+            enqueueOCR(for: [prioritizedItem], prioritizing: prioritizedItem.id)
+            return
+        case .automatic:
+            break
+        }
+
         let unprocessedImageItems = store.clipboardHistory.filter {
             itemSupportsOCR($0)
                 && store.clipboardOCRCache[$0.id] == nil
@@ -1324,6 +1837,24 @@ struct MenuBarRootView: View {
         focusedField = true
     }
 
+    @MainActor
+    private func refreshOCRProcessing() {
+        enqueueOCRForUnprocessedImages(prioritizing: selectedClipboardItemID)
+    }
+
+    @MainActor
+    private func stopOCRProcessing(resetCompleted: Bool) {
+        ocrWorkerTask?.cancel()
+        ocrWorkerTask = nil
+        pendingOCRItemIDs.removeAll()
+        runningOCRItemIDs.removeAll()
+        ocrSourceIndexByItemID.removeAll()
+        ocrTextChunksByItemID.removeAll()
+        if resetCompleted {
+            completedOCRItemIDs.removeAll()
+        }
+    }
+
     private func handleCancelAction() {
         if hasMeaningfulText(store.clipboardSearchText) {
             clearSearch()
@@ -1333,20 +1864,24 @@ struct MenuBarRootView: View {
     }
 
     private func copyClipboardItemToPasteboard(_ itemID: UUID) {
-        selectedClipboardItemID = itemID
-        guard let item = store.clipboardHistory.first(where: { $0.id == itemID }),
-              store.clipboardCanCopy(item)
-        else {
+        commitClipboardSelection(itemID, clearsHoverState: false)
+        guard let item = store.clipboardHistory.first(where: { $0.id == itemID }) else {
             return
         }
-        let shouldClosePanel = onRequestClose != nil
+        if store.clipboardIsFileItem(item) {
+            store.refreshClipboardFileAvailability(force: true)
+        }
+        guard store.clipboardCanCopy(item) else {
+            return
+        }
+        let shouldClosePanel = onRequestClose != nil && store.closesPanelAfterCopy
         let feedback = store.copyClipboardItem(
             itemID,
             persistHistoryImmediately: !shouldClosePanel
         )
 
         if shouldClosePanel {
-            requestClosePanel(restorePreviousApp: true)
+            requestClosePanel(restorePreviousApp: store.restoresPreviousAppAfterCopy)
             Task { @MainActor in
                 store.scheduleClipboardPersistence()
             }
@@ -1357,8 +1892,8 @@ struct MenuBarRootView: View {
 
     private func copyTextToPasteboard(_ text: String) {
         let feedback = store.copyTextToClipboard(text)
-        if onRequestClose != nil {
-            requestClosePanel(restorePreviousApp: true)
+        if onRequestClose != nil && store.closesPanelAfterCopy {
+            requestClosePanel(restorePreviousApp: store.restoresPreviousAppAfterCopy)
         } else {
             presentFeedback(feedback)
         }
@@ -1386,16 +1921,36 @@ struct MenuBarRootView: View {
         store.clipboardDisplaySubtitle(for: item)
     }
 
+    private func ocrModeLabel(for mode: ClipboardOCRMode) -> String {
+        switch mode {
+        case .automatic:
+            return store.localized("ui.settings.ocrMode.automatic")
+        case .selectedOnly:
+            return store.localized("ui.settings.ocrMode.selectedOnly")
+        case .disabled:
+            return store.localized("ui.settings.ocrMode.disabled")
+        }
+    }
+
+    private func triggerManualUpdateCheck() {
+        Task {
+            let feedback = await store.checkForUpdatesManually()
+            await MainActor.run {
+                presentFeedback(feedback)
+            }
+        }
+    }
+
     private func itemSupportsOCR(_ item: ClipboardItem) -> Bool {
         store.clipboardHasPreviewImage(for: item)
     }
 
     private func supportsAirDrop(for item: ClipboardItem) -> Bool {
         if store.clipboardIsFileItem(item) {
-            return !store.clipboardFileURLs(for: item).isEmpty
+            return !store.clipboardAvailableFileURLs(for: item).isEmpty
         }
 
-        return store.clipboardImage(for: item) != nil
+        return store.clipboardImageData(for: item) != nil
     }
 
     private func canAirDropClipboardItem(_ item: ClipboardItem) -> Bool {
@@ -1412,6 +1967,7 @@ struct MenuBarRootView: View {
 
     private func airDropClipboardItem(_ item: ClipboardItem) {
         if store.clipboardIsFileItem(item) {
+            store.refreshClipboardFileAvailability(force: true)
             _ = airDropService.sendFiles(store.clipboardAvailableFileURLs(for: item))
             return
         }
@@ -1428,7 +1984,7 @@ struct MenuBarRootView: View {
         let title = store.localized("ui.clipboard.button.airdrop")
 
         if compact {
-            let canAirDrop = canAirDropClipboardItem(item)
+            let canAirDrop = supportsAirDrop(for: item)
 
             Button {
                 airDropClipboardItem(item)

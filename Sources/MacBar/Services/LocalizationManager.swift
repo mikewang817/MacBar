@@ -19,7 +19,11 @@ struct LanguageOption: Identifiable, Hashable {
 
 final class LocalizationManager: ObservableObject {
     static let systemLanguageCode = "system"
-    private static let cachedLocalizationCodes = Bundle.module.localizations.filter { $0.lowercased() != "base" }
+    private static let supportedLocalizationCodes = ["en", "zh-Hans", "de", "fr", "ja", "ko", "ar"]
+    private static let cachedLocalizationCodes: [String] = {
+        let available = Set(Bundle.module.localizations.filter { $0.lowercased() != "base" })
+        return supportedLocalizationCodes.filter { available.contains($0) }
+    }()
 
     @Published private(set) var selectedLanguageCode: String
     @Published private(set) var effectiveLanguageIdentifier: String = "en"
@@ -112,6 +116,10 @@ final class LocalizationManager: ObservableObject {
             refreshEffectiveLanguage()
         }
 
+        let supportedOrder = Self.cachedLocalizationCodes.enumerated().reduce(into: [String: Int]()) { result, entry in
+            result[entry.element] = entry.offset
+        }
+
         let options = codes
             .map { code in
                 LanguageOption(
@@ -121,7 +129,12 @@ final class LocalizationManager: ObservableObject {
                 )
             }
             .sorted { lhs, rhs in
-                lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
+                let lhsRank = supportedOrder[lhs.code] ?? .max
+                let rhsRank = supportedOrder[rhs.code] ?? .max
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
             }
 
         languageOptions = [

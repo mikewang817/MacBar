@@ -33,8 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupGlobalHotkey()
 
         Task {
-            try? await Task.sleep(for: .seconds(5))
-            await AppServices.shared.store.checkForUpdates(force: true)
+            await AppServices.shared.store.startupUpdateCheckIfNeeded()
         }
     }
 
@@ -48,7 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "MacBar")
+        let image = NSImage(systemSymbolName: "paperclip", accessibilityDescription: "MacBar")
+        image?.isTemplate = true
+        item.button?.image = image
         item.button?.action = #selector(togglePanel)
         item.button?.target = self
         statusItem = item

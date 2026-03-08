@@ -11,12 +11,14 @@ struct StoreFeedback {
 @MainActor
 final class MacBarStore: ObservableObject {
     @Published var activePanel: AppPanel = .clipboard
+    @Published private(set) var settings: AppSettings
     @Published var clipboardSearchText: String = "" {
         didSet { rebuildDerivedClipboardCollections() }
     }
     @Published private(set) var clipboardHistory: [ClipboardItem] {
         didSet {
             rebuildClipboardMetadataCache()
+            rebuildFileAvailabilityCache()
             rebuildDerivedClipboardCollections()
         }
     }
@@ -29,6 +31,7 @@ final class MacBarStore: ObservableObject {
     }
     @Published private(set) var pendingUpdateRelease: GitHubRelease? = nil
     @Published private(set) var isUpdateInstalling: Bool = false
+    @Published private(set) var isCheckingForUpdates: Bool = false
 
     private let defaults: UserDefaults
     private let localizationManager: LocalizationManager
@@ -38,12 +41,13 @@ final class MacBarStore: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
     private var panelOpenCountSinceLastUpdateCheck: Int
-    private var isCheckingForUpdates = false
     private var imageDataCache: [String: Data] = [:]
     private var imagePreviewCache: [String: NSImage] = [:]
     private var fileImageDataCache: [String: Data] = [:]
     private var fileImagePreviewCache: [String: NSImage] = [:]
     private var metadataByItemID: [UUID: ClipboardItemMetadata] = [:]
+    private var fileAvailabilityByItemID: [UUID: ClipboardFileAvailability] = [:]
+    private var lastFileAvailabilityRefreshAt: Date?
     private var filteredClipboardItemsCache: [ClipboardItem] = []
     private var pinnedClipboardItemsCache: [ClipboardItem] = []
     private var recentClipboardItemsCache: [ClipboardItem] = []
@@ -56,6 +60,7 @@ final class MacBarStore: ObservableObject {
     }()
 
     private enum Keys {
+        static let appSettingsData = "macbar.appSettingsData"
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
         static let pinnedClipboardIDs = "macbar.pinnedClipboardIDs"
         static let clipboardMonitoringEnabled = "macbar.clipboardMonitoringEnabled"
@@ -63,6 +68,7 @@ final class MacBarStore: ObservableObject {
     }
 
     private static let updateCheckPanelOpenThreshold = 20
+    private static let fileAvailabilityRefreshInterval: TimeInterval = 1.0
 
     private struct ClipboardItemMetadata {
         let fileURLs: [URL]
@@ -73,6 +79,12 @@ final class MacBarStore: ObservableObject {
         let previewTitle: String
         let previewSubtitle: String
         let searchableText: String
+    }
+
+    private struct ClipboardFileAvailability: Equatable {
+        let availableFileURLs: [URL]
+        let missingFileURLs: [URL]
+        let availableImageFileURLs: [URL]
     }
 
     static func sharedDefaults() -> UserDefaults {
@@ -91,6 +103,7 @@ final class MacBarStore: ObservableObject {
         self.localizationManager = localizationManager
         self.clipboardMonitor = clipboardMonitor
         self.clipboardImageStore = clipboardImageStore
+        self.settings = Self.loadAppSettings(defaults: defaults)
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
         self.isClipboardMonitoringEnabled = defaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool ?? true
@@ -98,8 +111,10 @@ final class MacBarStore: ObservableObject {
 
         normalizeClipboardState()
         migrateLegacyClipboardImagesIfNeeded()
+        enforceRetentionPolicies(persistChanges: true)
         purgeUnusedStoredImages()
         rebuildClipboardMetadataCache()
+        rebuildFileAvailabilityCache()
         refreshLocalizedSearchLabels()
         rebuildDerivedClipboardCollections()
         configureClipboardMonitoring()
@@ -138,12 +153,80 @@ final class MacBarStore: ObservableObject {
         filteredClipboardItemsCache
     }
 
+    var closesPanelAfterCopy: Bool {
+        settings.closesPanelAfterCopy
+    }
+
+    var restoresPreviousAppAfterCopy: Bool {
+        settings.restoresPreviousAppAfterCopy
+    }
+
+    var showsPreviewPane: Bool {
+        settings.showsPreviewPane
+    }
+
+    var ocrMode: ClipboardOCRMode {
+        settings.ocrMode
+    }
+
+    var automaticallyChecksForUpdates: Bool {
+        settings.automaticallyChecksForUpdates
+    }
+
     func localized(_ key: String) -> String {
         localizationManager.localized(key)
     }
 
     func localized(_ key: String, _ arguments: CVarArg...) -> String {
         localizationManager.localized(key, arguments: arguments)
+    }
+
+    func setClosesPanelAfterCopy(_ isEnabled: Bool) {
+        updateSettings {
+            $0.closesPanelAfterCopy = isEnabled
+        }
+    }
+
+    func setRestoresPreviousAppAfterCopy(_ isEnabled: Bool) {
+        updateSettings {
+            $0.restoresPreviousAppAfterCopy = isEnabled
+        }
+    }
+
+    func setShowsPreviewPane(_ isEnabled: Bool) {
+        updateSettings {
+            $0.showsPreviewPane = isEnabled
+        }
+    }
+
+    func setMaxHistoryItems(_ value: Int) {
+        updateSettings {
+            $0.maxHistoryItems = value
+        }
+        enforceRetentionPolicies(persistChanges: true)
+    }
+
+    func setMaxStoredImageCacheSizeMB(_ value: Int) {
+        updateSettings {
+            $0.maxStoredImageCacheSizeMB = value
+        }
+        enforceRetentionPolicies(persistChanges: true)
+    }
+
+    func setOCRMode(_ mode: ClipboardOCRMode) {
+        updateSettings {
+            $0.ocrMode = mode
+        }
+    }
+
+    func setAutomaticallyChecksForUpdates(_ isEnabled: Bool) {
+        updateSettings {
+            $0.automaticallyChecksForUpdates = isEnabled
+        }
+
+        if !isEnabled {
+            resetUpdateCheckPanelOpenCount()
+        }
     }
 
     func clipboardCopyShortcutHint() -> String {
@@ -169,6 +252,10 @@ final class MacBarStore: ObservableObject {
     }
 
     func registerPanelOpenForUpdateCheck() async {
+        guard automaticallyChecksForUpdates else {
+            return
+        }
+
         panelOpenCountSinceLastUpdateCheck += 1
         defaults.set(panelOpenCountSinceLastUpdateCheck, forKey: Keys.updateCheckPanelOpenCount)
 
@@ -191,6 +278,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
+        enforceRetentionPolicies(persistChanges: false)
         schedulePersistence()
     }
 
@@ -200,6 +288,9 @@ final class MacBarStore: ObservableObject {
         }
 
         let item = clipboardHistory[index]
+        if clipboardIsFileItem(item) {
+            refreshClipboardFileAvailability(force: true)
+        }
         let fileURLs = clipboardAvailableFileURLs(for: item)
         if !fileURLs.isEmpty {
             clipboardMonitor.copyFilesToPasteboard(fileURLs)
@@ -318,6 +409,16 @@ final class MacBarStore: ObservableObject {
         )
     }
 
+    func setClipboardMonitoringEnabled(_ isEnabled: Bool) {
+        guard isClipboardMonitoringEnabled != isEnabled else {
+            return
+        }
+
+        isClipboardMonitoringEnabled = isEnabled
+        defaults.set(isEnabled, forKey: Keys.clipboardMonitoringEnabled)
+        configureClipboardMonitoring()
+    }
+
     func clipboardCapturedAtLabel(for item: ClipboardItem) -> String {
         relativeDateTimeFormatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
         return relativeDateTimeFormatter.localizedString(for: item.capturedAt, relativeTo: Date())
@@ -391,8 +492,7 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardImageFileURLs(for item: ClipboardItem) -> [URL] {
-        let imageFileURLs = metadataByItemID[item.id]?.imageFileURLs ?? []
-        return imageFileURLs.filter(fileReferenceExists(_:))
+        fileAvailability(for: item).availableImageFileURLs
     }
 
     func clipboardOCRSourceCount(for item: ClipboardItem) -> Int {
@@ -417,11 +517,11 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardAvailableFileURLs(for item: ClipboardItem) -> [URL] {
-        clipboardFileURLs(for: item).filter(fileReferenceExists(_:))
+        fileAvailability(for: item).availableFileURLs
     }
 
     func clipboardMissingFileURLs(for item: ClipboardItem) -> [URL] {
-        clipboardFileURLs(for: item).filter { !fileReferenceExists($0) }
+        fileAvailability(for: item).missingFileURLs
     }
 
     func clipboardHasMissingFiles(_ item: ClipboardItem) -> Bool {
@@ -442,6 +542,25 @@ final class MacBarStore: ObservableObject {
         }
 
         return true
+    }
+
+    func refreshClipboardFileAvailability(force: Bool = false) {
+        let now = Date()
+        if !force,
+           let lastFileAvailabilityRefreshAt,
+           now.timeIntervalSince(lastFileAvailabilityRefreshAt) < Self.fileAvailabilityRefreshInterval {
+            return
+        }
+
+        let updatedAvailability = makeFileAvailabilityCache()
+        lastFileAvailabilityRefreshAt = now
+
+        guard updatedAvailability != fileAvailabilityByItemID else {
+            return
+        }
+
+        fileAvailabilityByItemID = updatedAvailability
+        objectWillChange.send()
     }
 
     func clipboardFirstFileURL(for item: ClipboardItem) -> URL? {
@@ -472,16 +591,6 @@ final class MacBarStore: ObservableObject {
         } else {
             clipboardMonitor.stopMonitoring()
         }
-    }
-
-    private func setClipboardMonitoringEnabled(_ isEnabled: Bool) {
-        guard isClipboardMonitoringEnabled != isEnabled else {
-            return
-        }
-
-        isClipboardMonitoringEnabled = isEnabled
-        defaults.set(isEnabled, forKey: Keys.clipboardMonitoringEnabled)
-        configureClipboardMonitoring()
     }
 
     private func captureClipboardItem(_ capturedItem: ClipboardCapture) {
@@ -524,6 +633,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
+        enforceRetentionPolicies(persistChanges: false)
         schedulePersistence()
     }
 
@@ -565,6 +675,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
+        enforceRetentionPolicies(persistChanges: false)
         schedulePersistence()
     }
 
@@ -602,6 +713,7 @@ final class MacBarStore: ObservableObject {
         }
 
         normalizeClipboardState()
+        enforceRetentionPolicies(persistChanges: false)
         schedulePersistence()
     }
 
@@ -643,6 +755,29 @@ final class MacBarStore: ObservableObject {
         }
     }
 
+    private func persistSettings() {
+        var normalizedSettings = settings
+        normalizedSettings.normalize()
+
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(normalizedSettings) {
+            defaults.set(data, forKey: Keys.appSettingsData)
+        }
+    }
+
+    private func updateSettings(_ mutate: (inout AppSettings) -> Void) {
+        var updatedSettings = settings
+        mutate(&updatedSettings)
+        updatedSettings.normalize()
+
+        guard updatedSettings != settings else {
+            return
+        }
+
+        settings = updatedSettings
+        persistSettings()
+    }
+
     private func serializedPinnedClipboardIDs() -> [String] {
         Array(pinnedClipboardItemIDs).map(\.uuidString).sorted()
     }
@@ -656,6 +791,114 @@ final class MacBarStore: ObservableObject {
             defaults.set(data, forKey: Keys.clipboardHistoryData)
         }
         defaults.set(pinnedIDs, forKey: Keys.pinnedClipboardIDs)
+    }
+
+    private func enforceRetentionPolicies(persistChanges: Bool) {
+        var removedItems: [ClipboardItem] = []
+
+        removedItems += trimHistoryToMaximumItemLimit()
+        removedItems += trimStoredImageHistoryToCacheLimit()
+
+        guard !removedItems.isEmpty else {
+            return
+        }
+
+        let removedIDs = Set(removedItems.map(\.id))
+        removedIDs.forEach { clipboardOCRCache.removeValue(forKey: $0) }
+        removeStoredImages(for: removedItems)
+
+        if persistChanges {
+            pendingPersistenceTask?.cancel()
+            pendingPersistenceTask = nil
+            persistClipboardState(
+                history: clipboardHistory,
+                pinnedIDs: serializedPinnedClipboardIDs()
+            )
+        }
+    }
+
+    private func trimHistoryToMaximumItemLimit() -> [ClipboardItem] {
+        let pinnedIDs = pinnedClipboardItemIDs
+        let pinnedCount = clipboardHistory.reduce(into: 0) { count, item in
+            if pinnedIDs.contains(item.id) {
+                count += 1
+            }
+        }
+        let allowedUnpinnedCount = max(0, settings.maxHistoryItems - pinnedCount)
+
+        var keptItems: [ClipboardItem] = []
+        var removedItems: [ClipboardItem] = []
+        var keptUnpinnedCount = 0
+
+        for item in clipboardHistory {
+            if pinnedIDs.contains(item.id) {
+                keptItems.append(item)
+                continue
+            }
+
+            if keptUnpinnedCount < allowedUnpinnedCount {
+                keptItems.append(item)
+                keptUnpinnedCount += 1
+            } else {
+                removedItems.append(item)
+            }
+        }
+
+        guard !removedItems.isEmpty else {
+            return []
+        }
+
+        clipboardHistory = keptItems
+        return removedItems
+    }
+
+    private func trimStoredImageHistoryToCacheLimit() -> [ClipboardItem] {
+        let limitBytes = Int64(settings.maxStoredImageCacheSizeMB) * 1_048_576
+        guard limitBytes >= 0 else {
+            return []
+        }
+
+        let storedImageItems = clipboardHistory.filter {
+            clipboardIsImageDataItem($0) && $0.imageStorageKey != nil
+        }
+        var totalBytes = storedImageItems.reduce(into: Int64(0)) { total, item in
+            guard let storageKey = item.imageStorageKey else {
+                return
+            }
+            total += clipboardImageStore.fileSize(for: storageKey)
+        }
+
+        guard totalBytes > limitBytes else {
+            return []
+        }
+
+        let pinnedIDs = pinnedClipboardItemIDs
+        var removableIDs: Set<UUID> = []
+        var removedItems: [ClipboardItem] = []
+
+        for item in clipboardHistory.reversed() {
+            guard totalBytes > limitBytes else {
+                break
+            }
+            guard
+                !pinnedIDs.contains(item.id),
+                clipboardIsImageDataItem(item),
+                let storageKey = item.imageStorageKey
+            else {
+                continue
+            }
+
+            totalBytes -= clipboardImageStore.fileSize(for: storageKey)
+            removableIDs.insert(item.id)
+            removedItems.append(item)
+        }
+
+        guard !removedItems.isEmpty else {
+            return []
+        }
+
+        clipboardHistory.removeAll { removableIDs.contains($0.id) }
+        return removedItems
     }
 
     private func migrateLegacyClipboardImagesIfNeeded() {
@@ -728,25 +971,48 @@ final class MacBarStore: ObservableObject {
         return Set(rawIDs.compactMap(UUID.init(uuidString:)))
     }
 
+    private static func loadAppSettings(defaults: UserDefaults) -> AppSettings {
+        guard let data = defaults.data(forKey: Keys.appSettingsData) else {
+            return AppSettings()
+        }
+
+        let decoder = JSONDecoder()
+        var settings = (try? decoder.decode(AppSettings.self, from: data)) ?? AppSettings()
+        settings.normalize()
+        return settings
+    }
+
     private static func migrateLegacyDefaultsIfNeeded(into sharedDefaults: UserDefaults) {
-        guard !hasPersistedClipboardState(in: sharedDefaults) else {
+        let needsAppSettings = sharedDefaults.data(forKey: Keys.appSettingsData) == nil
+        let needsClipboardState = !hasPersistedClipboardState(in: sharedDefaults)
+
+        guard needsAppSettings || needsClipboardState else {
             return
         }
 
-        for legacyDefaults in legacyDefaultsCandidates() where hasPersistedClipboardState(in: legacyDefaults) {
-            if let historyData = legacyDefaults.data(forKey: Keys.clipboardHistoryData) {
+        for legacyDefaults in legacyDefaultsCandidates() where
+            needsAppSettings && legacyDefaults.data(forKey: Keys.appSettingsData) != nil
+                || needsClipboardState && hasPersistedClipboardState(in: legacyDefaults)
+        {
+            if needsAppSettings, let appSettingsData = legacyDefaults.data(forKey: Keys.appSettingsData) {
+                sharedDefaults.set(appSettingsData, forKey: Keys.appSettingsData)
+            }
+
+            if needsClipboardState, let historyData = legacyDefaults.data(forKey: Keys.clipboardHistoryData) {
                 sharedDefaults.set(historyData, forKey: Keys.clipboardHistoryData)
             }
 
-            if let pinnedIDs = legacyDefaults.stringArray(forKey: Keys.pinnedClipboardIDs) {
+            if needsClipboardState, let pinnedIDs = legacyDefaults.stringArray(forKey: Keys.pinnedClipboardIDs) {
                 sharedDefaults.set(pinnedIDs, forKey: Keys.pinnedClipboardIDs)
             }
 
-            if let monitoringEnabled = legacyDefaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool {
+            if needsClipboardState,
+               let monitoringEnabled = legacyDefaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool {
                 sharedDefaults.set(monitoringEnabled, forKey: Keys.clipboardMonitoringEnabled)
             }
 
-            if let updateCheckPanelOpenCount = legacyDefaults.object(forKey: Keys.updateCheckPanelOpenCount) {
+            if needsClipboardState,
+               let updateCheckPanelOpenCount = legacyDefaults.object(forKey: Keys.updateCheckPanelOpenCount) {
                 sharedDefaults.set(updateCheckPanelOpenCount, forKey: Keys.updateCheckPanelOpenCount)
             }
 
@@ -817,6 +1083,19 @@ final class MacBarStore: ObservableObject {
         )
     }
 
+    private func rebuildFileAvailabilityCache() {
+        fileAvailabilityByItemID = makeFileAvailabilityCache()
+        lastFileAvailabilityRefreshAt = Date()
+    }
+
+    private func makeFileAvailabilityCache() -> [UUID: ClipboardFileAvailability] {
+        Dictionary(
+            uniqueKeysWithValues: clipboardHistory.map { item in
+                (item.id, makeFileAvailability(for: item))
+            }
+        )
+    }
+
     private func refreshLocalizedSearchLabels() {
         localizedFileSearchLabel = localized("ui.clipboard.item.file")
         localizedImageSearchLabel = localized("ui.clipboard.item.image")
@@ -879,6 +1158,44 @@ final class MacBarStore: ObservableObject {
             previewTitle: previewTitle,
             previewSubtitle: previewSubtitle,
             searchableText: searchableText
+        )
+    }
+
+    private func fileAvailability(for item: ClipboardItem) -> ClipboardFileAvailability {
+        if let cachedAvailability = fileAvailabilityByItemID[item.id] {
+            return cachedAvailability
+        }
+
+        let availability = makeFileAvailability(for: item)
+        fileAvailabilityByItemID[item.id] = availability
+        return availability
+    }
+
+    private func makeFileAvailability(for item: ClipboardItem) -> ClipboardFileAvailability {
+        let metadata = metadataByItemID[item.id]
+        let fileURLs = metadata?.fileURLs ?? item.fileURLs
+        let imageFileURLSet = Set((metadata?.imageFileURLs ?? []).map(\.standardizedFileURL))
+        var availableFileURLs: [URL] = []
+        var missingFileURLs: [URL] = []
+        var availableImageFileURLs: [URL] = []
+
+        for fileURL in fileURLs {
+            let standardizedURL = fileURL.standardizedFileURL
+
+            if fileReferenceExists(standardizedURL) {
+                availableFileURLs.append(standardizedURL)
+                if imageFileURLSet.contains(standardizedURL) {
+                    availableImageFileURLs.append(standardizedURL)
+                }
+            } else {
+                missingFileURLs.append(standardizedURL)
+            }
+        }
+
+        return ClipboardFileAvailability(
+            availableFileURLs: availableFileURLs,
+            missingFileURLs: missingFileURLs,
+            availableImageFileURLs: availableImageFileURLs
         )
     }
 
@@ -1077,6 +1394,10 @@ final class MacBarStore: ObservableObject {
     // MARK: - Update
 
     func checkForUpdates(force: Bool = false) async {
+        if !force && !automaticallyChecksForUpdates {
+            return
+        }
+
         if isCheckingForUpdates {
             return
         }
@@ -1111,6 +1432,56 @@ final class MacBarStore: ObservableObject {
         } catch {
             isUpdateInstalling = false
             NSWorkspace.shared.open(updateService.manualDownloadURL(for: release))
+        }
+    }
+
+    func startupUpdateCheckIfNeeded() async {
+        guard automaticallyChecksForUpdates else {
+            return
+        }
+
+        try? await Task.sleep(for: .seconds(5))
+        await checkForUpdates(force: true)
+    }
+
+    func checkForUpdatesManually() async -> StoreFeedback {
+        if isCheckingForUpdates {
+            return makeFeedback(
+                titleKey: "feedback.update.title",
+                messageKey: "feedback.update.checking"
+            )
+        }
+
+        isCheckingForUpdates = true
+        defer {
+            isCheckingForUpdates = false
+        }
+
+        resetUpdateCheckPanelOpenCount()
+
+        let currentVersion = AppVersion.shortVersion
+
+        do {
+            let release = try await updateService.fetchLatestRelease()
+            if updateService.isNewerVersion(release.versionNumber, than: currentVersion) {
+                pendingUpdateRelease = release
+                return makeFeedback(
+                    titleKey: "feedback.update.title",
+                    messageKey: "feedback.update.available",
+                    arguments: [release.versionNumber]
+                )
+            }
+
+            pendingUpdateRelease = nil
+            return makeFeedback(
+                titleKey: "feedback.update.title",
+                messageKey: "feedback.update.upToDate"
+            )
+        } catch {
+            return makeFeedback(
+                titleKey: "feedback.update.title",
+                messageKey: "feedback.update.failed"
+            )
         }
     }
 

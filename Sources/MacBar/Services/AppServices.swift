@@ -10,9 +10,9 @@ final class AppServices {
     let ocrService: OCRService
 
     private init() {
-        let localizationManager = LocalizationManager()
-        let clipboardMonitor = ClipboardMonitor()
         let sharedDefaults = MacBarStore.sharedDefaults()
+        let localizationManager = LocalizationManager(defaults: sharedDefaults)
+        let clipboardMonitor = ClipboardMonitor()
 
         self.localizationManager = localizationManager
         self.store = MacBarStore(

@@ -59,6 +59,18 @@ final class ClipboardImageStore {
         fileManager.fileExists(atPath: imageURL(for: storageKey).path)
     }
 
+    func fileSize(for storageKey: String) -> Int64 {
+        let imagePath = imageURL(for: storageKey).path
+        guard
+            let attributes = try? fileManager.attributesOfItem(atPath: imagePath),
+            let fileSize = attributes[.size] as? NSNumber
+        else {
+            return 0
+        }
+
+        return fileSize.int64Value
+    }
+
     private func ensureDirectoryExists() throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     }
