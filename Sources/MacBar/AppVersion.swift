@@ -4,8 +4,8 @@ enum AppVersion {
     // SwiftPM debug/app-package builds do not reliably expose our custom Info.plist
     // through Bundle.main, so keep a source-controlled fallback for in-app display
     // and update checks. Release packaging still copies Sources/MacBar/Info.plist.
-    private static let fallbackShortVersion = "1.0.18"
-    private static let fallbackBuildNumber = "20"
+    private static let fallbackShortVersion = "1.0.19"
+    private static let fallbackBuildNumber = "21"
 
     static var shortVersion: String {
         bundleValue(for: "CFBundleShortVersionString") ?? fallbackShortVersion
