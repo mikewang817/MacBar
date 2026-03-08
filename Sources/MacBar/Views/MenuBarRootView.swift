@@ -197,13 +197,23 @@ struct MenuBarRootView: View {
 
     private func clipboardPreviewPane(item: ClipboardItem) -> some View {
         let fileURLs = store.clipboardFileURLs(for: item)
+        let availableFileURLs = store.clipboardAvailableFileURLs(for: item)
+        let missingFileURLs = store.clipboardMissingFileURLs(for: item)
         let previewImage = store.clipboardPreviewImage(for: item)
         let isFileItem = store.clipboardIsFileItem(item)
+        let isUnavailableFileItem = store.clipboardIsFileItemUnavailable(item)
 
         return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if isFileItem {
+                        if !missingFileURLs.isEmpty {
+                            fileAvailabilityNotice(
+                                missingCount: missingFileURLs.count,
+                                isUnavailable: isUnavailableFileItem
+                            )
+                        }
+
                         if let previewImage {
                             clipboardPreviewImageSection(
                                 item: item,
@@ -217,14 +227,35 @@ struct MenuBarRootView: View {
                         }
 
                         ForEach(fileURLs, id: \.absoluteString) { url in
+                            let isMissing = !availableFileURLs.contains(url)
+
                             HStack(alignment: .top, spacing: 6) {
-                                Image(systemName: "doc.fill")
-                                    .foregroundStyle(.secondary)
+                                Image(systemName: isMissing ? "exclamationmark.triangle.fill" : "doc.fill")
+                                    .foregroundStyle(isMissing ? .tertiary : .secondary)
                                     .padding(.top, 1)
-                                Text(url.path)
-                                    .font(.system(size: 12))
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text(url.lastPathComponent)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(isMissing ? .secondary : .primary)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        if isMissing {
+                                            fileStatusBadge(
+                                                store.localized("ui.clipboard.item.unavailable"),
+                                                tint: .secondary
+                                            )
+                                        }
+                                    }
+
+                                    Text(url.path)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(isMissing ? .tertiary : .secondary)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
                             }
                         }
 
@@ -233,13 +264,14 @@ struct MenuBarRootView: View {
 
                             HStack(spacing: 8) {
                                 Button {
-                                    NSWorkspace.shared.activateFileViewerSelecting(fileURLs)
+                                    NSWorkspace.shared.activateFileViewerSelecting(availableFileURLs)
                                 } label: {
                                     Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
                                         .font(.caption)
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(availableFileURLs.isEmpty)
 
                                 airDropButton(for: item)
                             }
@@ -289,7 +321,11 @@ struct MenuBarRootView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.clipboardCopyShortcutHint())
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(
+                        isUnavailableFileItem
+                            ? AnyShapeStyle(Color.secondary.opacity(0.55))
+                            : AnyShapeStyle(Color.secondary)
+                    )
                 Text(store.clipboardDeleteShortcutHint())
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -535,9 +571,13 @@ struct MenuBarRootView: View {
 
     private func clipboardRow(_ item: ClipboardItem, shortcutLabel: String?, isSelected: Bool) -> some View {
         let fileURLs = store.clipboardFileURLs(for: item)
+        let missingFileURLs = store.clipboardMissingFileURLs(for: item)
         let isPinned = store.isClipboardItemPinned(item.id)
         let title = store.clipboardDisplayTitle(for: item)
         let isFileItem = store.clipboardIsFileItem(item)
+        let isUnavailableFileItem = store.clipboardIsFileItemUnavailable(item)
+        let hasPartiallyMissingFiles = isFileItem && !isUnavailableFileItem && !missingFileURLs.isEmpty
+        let canCopyItem = store.clipboardCanCopy(item)
 
         return HStack(spacing: 10) {
             Group {
@@ -545,7 +585,7 @@ struct MenuBarRootView: View {
                     Image(systemName: "doc.fill")
                         .frame(width: 22)
                         .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isUnavailableFileItem ? .secondary : .primary)
                 } else if let image = store.clipboardImage(for: item) {
                     Image(nsImage: image)
                         .resizable()
@@ -562,15 +602,29 @@ struct MenuBarRootView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 if isFileItem, let fileURL = fileURLs.first {
-                    Text(fileTitle(firstFileURL: fileURL, fileCount: fileURLs.count))
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Text(fileURL.deletingLastPathComponent().path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                    HStack(spacing: 6) {
+                        Text(fileTitle(firstFileURL: fileURL, fileCount: fileURLs.count))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(isUnavailableFileItem ? .secondary : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        if isUnavailableFileItem {
+                            fileStatusBadge(store.localized("ui.clipboard.item.unavailable"), tint: .secondary)
+                        } else if hasPartiallyMissingFiles {
+                            fileStatusBadge(store.localized("ui.clipboard.item.partiallyUnavailable"), tint: .secondary)
+                        }
+                    }
+
+                    Text(
+                        isUnavailableFileItem
+                            ? store.localized("ui.clipboard.preview.fileUnavailableInline")
+                            : fileURL.deletingLastPathComponent().path
+                    )
+                    .font(.caption)
+                    .foregroundStyle(isUnavailableFileItem ? .tertiary : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
                 } else {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
@@ -610,9 +664,10 @@ struct MenuBarRootView: View {
 
                 clipboardRowActionButton(
                     systemImage: "doc.on.doc",
-                    iconTint: .white,
-                    backgroundTint: .accentColor,
-                    isProminent: true,
+                    iconTint: canCopyItem ? .white : .secondary,
+                    backgroundTint: canCopyItem ? .accentColor : nil,
+                    isProminent: canCopyItem,
+                    isEnabled: canCopyItem,
                     help: store.localized("ui.clipboard.button.copy")
                 ) {
                     copyClipboardItemToPasteboard(item.id)
@@ -632,6 +687,7 @@ struct MenuBarRootView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isSelected ? Color.accentColor.opacity(0.95) : .clear, lineWidth: 1.2)
         )
+        .opacity(isUnavailableFileItem ? 0.6 : 1)
         .contentShape(Rectangle())
         .onHover { isHovering in
             if isHovering {
@@ -783,6 +839,9 @@ struct MenuBarRootView: View {
 
         let selected = selectedClipboardItemID
             .flatMap { id in items.first(where: { $0.id == id }) } ?? items[0]
+        guard store.clipboardCanCopy(selected) else {
+            return
+        }
         copyClipboardItemToPasteboard(selected.id)
     }
 
@@ -812,6 +871,9 @@ struct MenuBarRootView: View {
             return
         }
 
+        guard store.clipboardCanCopy(items[index]) else {
+            return
+        }
         copyClipboardItemToPasteboard(items[index].id)
     }
 
@@ -821,6 +883,9 @@ struct MenuBarRootView: View {
             return
         }
 
+        guard store.clipboardCanCopy(items[index]) else {
+            return
+        }
         copyClipboardItemToPasteboard(items[index].id)
     }
 
@@ -1269,6 +1334,11 @@ struct MenuBarRootView: View {
 
     private func copyClipboardItemToPasteboard(_ itemID: UUID) {
         selectedClipboardItemID = itemID
+        guard let item = store.clipboardHistory.first(where: { $0.id == itemID }),
+              store.clipboardCanCopy(item)
+        else {
+            return
+        }
         let shouldClosePanel = onRequestClose != nil
         let feedback = store.copyClipboardItem(
             itemID,
@@ -1330,7 +1400,7 @@ struct MenuBarRootView: View {
 
     private func canAirDropClipboardItem(_ item: ClipboardItem) -> Bool {
         if store.clipboardIsFileItem(item) {
-            return airDropService.canSendFiles(store.clipboardFileURLs(for: item))
+            return airDropService.canSendFiles(store.clipboardAvailableFileURLs(for: item))
         }
 
         guard let image = store.clipboardImage(for: item) else {
@@ -1342,7 +1412,7 @@ struct MenuBarRootView: View {
 
     private func airDropClipboardItem(_ item: ClipboardItem) {
         if store.clipboardIsFileItem(item) {
-            _ = airDropService.sendFiles(store.clipboardFileURLs(for: item))
+            _ = airDropService.sendFiles(store.clipboardAvailableFileURLs(for: item))
             return
         }
 
@@ -1392,6 +1462,7 @@ struct MenuBarRootView: View {
         iconTint: Color,
         backgroundTint: Color? = nil,
         isProminent: Bool = false,
+        isEnabled: Bool = true,
         rotationDegrees: Double = 0,
         help: String,
         action: @escaping () -> Void
@@ -1406,6 +1477,7 @@ struct MenuBarRootView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
         .help(help)
     }
 
@@ -1476,6 +1548,45 @@ struct MenuBarRootView: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func fileStatusBadge(_ label: String, tint: Color) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.14))
+            )
+            .foregroundStyle(tint)
+    }
+
+    private func fileAvailabilityNotice(missingCount: Int, isUnavailable: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 1)
+
+            Text(
+                isUnavailable
+                    ? store.localized("ui.clipboard.preview.fileUnavailable")
+                    : store.localized("ui.clipboard.preview.filesPartiallyUnavailable", missingCount)
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.thinMaterial)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

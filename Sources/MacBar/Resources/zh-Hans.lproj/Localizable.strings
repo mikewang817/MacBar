@@ -10,6 +10,8 @@
 "ui.clipboard.item.image" = "图片";
 "ui.clipboard.item.file" = "文件";
 "ui.clipboard.item.fileCount" = "%d 个文件";
+"ui.clipboard.item.unavailable" = "已失效";
+"ui.clipboard.item.partiallyUnavailable" = "部分失效";
 "ui.clipboard.item.characters" = "%d 个字符";
 "ui.clipboard.item.words" = "%d 个单词";
 "ui.clipboard.button.copy" = "复制";
@@ -25,6 +27,9 @@
 "ui.clipboard.hint.copyShortcut" = "回车 → 复制";
 "ui.clipboard.hint.deleteShortcut" = "⌘Delete → 删除该条目";
 "ui.clipboard.button.revealInFinder" = "在 Finder 中显示";
+"ui.clipboard.preview.fileUnavailable" = "原始文件已经不可用，这条记录会保留供你参考。";
+"ui.clipboard.preview.filesPartiallyUnavailable" = "有 %d 个文件已经不可用。";
+"ui.clipboard.preview.fileUnavailableInline" = "原始文件已经不可用";
 "ui.clipboard.status.monitoringOn" = "监听中";
 "ui.clipboard.status.monitoringOff" = "监听已暂停";
 "ui.clipboard.status.itemsCount" = "%d 条记录";

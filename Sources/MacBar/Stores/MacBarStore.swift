@@ -75,6 +75,12 @@ final class MacBarStore: ObservableObject {
         let searchableText: String
     }
 
+    static func sharedDefaults() -> UserDefaults {
+        let sharedDefaults = UserDefaults(suiteName: BuildInfo.preferencesSuiteName) ?? .standard
+        migrateLegacyDefaultsIfNeeded(into: sharedDefaults)
+        return sharedDefaults
+    }
+
     init(
         defaults: UserDefaults = .standard,
         localizationManager: LocalizationManager = LocalizationManager(),
@@ -194,9 +200,11 @@ final class MacBarStore: ObservableObject {
         }
 
         let item = clipboardHistory[index]
-        let fileURLs = clipboardFileURLs(for: item)
+        let fileURLs = clipboardAvailableFileURLs(for: item)
         if !fileURLs.isEmpty {
             clipboardMonitor.copyFilesToPasteboard(fileURLs)
+        } else if clipboardIsFileItem(item) {
+            return nil
         } else if let imageData = clipboardImageData(for: item) {
             clipboardMonitor.copyImageToPasteboard(imageData)
         } else {
@@ -363,7 +371,7 @@ final class MacBarStore: ObservableObject {
             return true
         }
 
-        return metadataByItemID[item.id]?.firstImageFileURL != nil
+        return !clipboardImageFileURLs(for: item).isEmpty
     }
 
     func clipboardIsFileItem(_ item: ClipboardItem) -> Bool {
@@ -375,7 +383,7 @@ final class MacBarStore: ObservableObject {
             return clipboardImage(for: item)
         }
 
-        guard let imageFileURL = metadataByItemID[item.id]?.firstImageFileURL else {
+        guard let imageFileURL = clipboardImageFileURLs(for: item).first else {
             return nil
         }
 
@@ -383,7 +391,8 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardImageFileURLs(for item: ClipboardItem) -> [URL] {
-        metadataByItemID[item.id]?.imageFileURLs ?? []
+        let imageFileURLs = metadataByItemID[item.id]?.imageFileURLs ?? []
+        return imageFileURLs.filter(fileReferenceExists(_:))
     }
 
     func clipboardOCRSourceCount(for item: ClipboardItem) -> Int {
@@ -405,6 +414,34 @@ final class MacBarStore: ObservableObject {
 
     func clipboardFileURLs(for item: ClipboardItem) -> [URL] {
         metadataByItemID[item.id]?.fileURLs ?? item.fileURLs
+    }
+
+    func clipboardAvailableFileURLs(for item: ClipboardItem) -> [URL] {
+        clipboardFileURLs(for: item).filter(fileReferenceExists(_:))
+    }
+
+    func clipboardMissingFileURLs(for item: ClipboardItem) -> [URL] {
+        clipboardFileURLs(for: item).filter { !fileReferenceExists($0) }
+    }
+
+    func clipboardHasMissingFiles(_ item: ClipboardItem) -> Bool {
+        !clipboardMissingFileURLs(for: item).isEmpty
+    }
+
+    func clipboardIsFileItemUnavailable(_ item: ClipboardItem) -> Bool {
+        clipboardIsFileItem(item) && clipboardAvailableFileURLs(for: item).isEmpty
+    }
+
+    func clipboardCanCopy(_ item: ClipboardItem) -> Bool {
+        if clipboardIsFileItem(item) {
+            return !clipboardAvailableFileURLs(for: item).isEmpty
+        }
+
+        if clipboardIsImageDataItem(item) {
+            return clipboardImageData(for: item) != nil
+        }
+
+        return true
     }
 
     func clipboardFirstFileURL(for item: ClipboardItem) -> URL? {
@@ -691,6 +728,74 @@ final class MacBarStore: ObservableObject {
         return Set(rawIDs.compactMap(UUID.init(uuidString:)))
     }
 
+    private static func migrateLegacyDefaultsIfNeeded(into sharedDefaults: UserDefaults) {
+        guard !hasPersistedClipboardState(in: sharedDefaults) else {
+            return
+        }
+
+        for legacyDefaults in legacyDefaultsCandidates() where hasPersistedClipboardState(in: legacyDefaults) {
+            if let historyData = legacyDefaults.data(forKey: Keys.clipboardHistoryData) {
+                sharedDefaults.set(historyData, forKey: Keys.clipboardHistoryData)
+            }
+
+            if let pinnedIDs = legacyDefaults.stringArray(forKey: Keys.pinnedClipboardIDs) {
+                sharedDefaults.set(pinnedIDs, forKey: Keys.pinnedClipboardIDs)
+            }
+
+            if let monitoringEnabled = legacyDefaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool {
+                sharedDefaults.set(monitoringEnabled, forKey: Keys.clipboardMonitoringEnabled)
+            }
+
+            if let updateCheckPanelOpenCount = legacyDefaults.object(forKey: Keys.updateCheckPanelOpenCount) {
+                sharedDefaults.set(updateCheckPanelOpenCount, forKey: Keys.updateCheckPanelOpenCount)
+            }
+
+            break
+        }
+    }
+
+    private static func hasPersistedClipboardState(in defaults: UserDefaults) -> Bool {
+        if defaults.data(forKey: Keys.clipboardHistoryData) != nil {
+            return true
+        }
+
+        if defaults.object(forKey: Keys.pinnedClipboardIDs) != nil {
+            return true
+        }
+
+        if defaults.object(forKey: Keys.clipboardMonitoringEnabled) != nil {
+            return true
+        }
+
+        return defaults.object(forKey: Keys.updateCheckPanelOpenCount) != nil
+    }
+
+    private static func legacyDefaultsCandidates() -> [UserDefaults] {
+        var candidates: [UserDefaults] = [.standard]
+
+        for suiteName in BuildInfo.legacyPreferencesSuiteNames {
+            if let defaults = UserDefaults(suiteName: suiteName) {
+                candidates.append(defaults)
+            }
+        }
+
+        return candidates
+    }
+
+    private static func allPersistedImageStorageKeys(currentDefaults: UserDefaults) -> Set<String> {
+        // ClipboardImages is shared across launch modes, so cleanup must keep
+        // storage keys referenced by every known defaults domain, not just the current one.
+        let defaultsCandidates = [currentDefaults]
+            + legacyDefaultsCandidates()
+            + (UserDefaults(suiteName: BuildInfo.preferencesSuiteName).map { [$0] } ?? [])
+
+        return Set(
+            defaultsCandidates
+                .flatMap { loadClipboardHistory(defaults: $0) }
+                .compactMap(\.imageStorageKey)
+        )
+    }
+
     private func makeFeedback(
         titleKey: String,
         messageKey: String,
@@ -886,6 +991,12 @@ final class MacBarStore: ObservableObject {
 
     private func loadImageDataFromFile(_ url: URL) -> Data? {
         let cacheKey = fileImageCacheKey(for: url)
+        guard fileReferenceExists(url) else {
+            fileImageDataCache.removeValue(forKey: cacheKey)
+            fileImagePreviewCache.removeValue(forKey: cacheKey)
+            return nil
+        }
+
         if let cachedData = fileImageDataCache[cacheKey] {
             return cachedData
         }
@@ -900,6 +1011,12 @@ final class MacBarStore: ObservableObject {
 
     private func previewImage(forFileURL url: URL) -> NSImage? {
         let cacheKey = fileImageCacheKey(for: url)
+        guard fileReferenceExists(url) else {
+            fileImageDataCache.removeValue(forKey: cacheKey)
+            fileImagePreviewCache.removeValue(forKey: cacheKey)
+            return nil
+        }
+
         if let cachedImage = fileImagePreviewCache[cacheKey] {
             return cachedImage
         }
@@ -916,8 +1033,18 @@ final class MacBarStore: ObservableObject {
         item.isImage && !clipboardIsFileItem(item)
     }
 
+    private func fileReferenceExists(_ url: URL) -> Bool {
+        guard url.isFileURL else {
+            return false
+        }
+
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     private func purgeUnusedStoredImages() {
-        clipboardImageStore.purgeUnusedImages(keeping: Set(clipboardHistory.compactMap(\.imageStorageKey)))
+        clipboardImageStore.purgeUnusedImages(
+            keeping: Self.allPersistedImageStorageKeys(currentDefaults: defaults)
+        )
     }
 
     private enum ShortcutHintStyle {

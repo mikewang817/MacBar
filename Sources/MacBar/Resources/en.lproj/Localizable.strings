@@ -10,6 +10,8 @@
 "ui.clipboard.item.image" = "Image";
 "ui.clipboard.item.file" = "File";
 "ui.clipboard.item.fileCount" = "%d file(s)";
+"ui.clipboard.item.unavailable" = "Unavailable";
+"ui.clipboard.item.partiallyUnavailable" = "Partially Missing";
 "ui.clipboard.item.characters" = "%d characters";
 "ui.clipboard.item.words" = "%d words";
 "ui.clipboard.button.copy" = "Copy";
@@ -25,6 +27,9 @@
 "ui.clipboard.hint.copyShortcut" = "Enter → Copy";
 "ui.clipboard.hint.deleteShortcut" = "⌘Delete → Delete this item";
 "ui.clipboard.button.revealInFinder" = "Reveal in Finder";
+"ui.clipboard.preview.fileUnavailable" = "The original file is no longer available. This record is kept for reference only.";
+"ui.clipboard.preview.filesPartiallyUnavailable" = "%d file(s) are no longer available.";
+"ui.clipboard.preview.fileUnavailableInline" = "Original file is no longer available";
 "ui.clipboard.status.monitoringOn" = "Monitoring On";
 "ui.clipboard.status.monitoringOff" = "Monitoring Paused";
 "ui.clipboard.status.itemsCount" = "%d items";

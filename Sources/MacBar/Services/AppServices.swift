@@ -12,9 +12,11 @@ final class AppServices {
     private init() {
         let localizationManager = LocalizationManager()
         let clipboardMonitor = ClipboardMonitor()
+        let sharedDefaults = MacBarStore.sharedDefaults()
 
         self.localizationManager = localizationManager
         self.store = MacBarStore(
+            defaults: sharedDefaults,
             localizationManager: localizationManager,
             clipboardMonitor: clipboardMonitor
         )
