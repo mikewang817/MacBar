@@ -194,8 +194,9 @@ final class MacBarStore: ObservableObject {
         }
 
         let item = clipboardHistory[index]
-        if item.isFile {
-            clipboardMonitor.copyFilesToPasteboard(item.fileURLs)
+        let fileURLs = clipboardFileURLs(for: item)
+        if !fileURLs.isEmpty {
+            clipboardMonitor.copyFilesToPasteboard(fileURLs)
         } else if let imageData = clipboardImageData(for: item) {
             clipboardMonitor.copyImageToPasteboard(imageData)
         } else {
@@ -315,7 +316,7 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardImageData(for item: ClipboardItem) -> Data? {
-        guard item.isImage else {
+        guard clipboardIsImageDataItem(item) else {
             return nil
         }
 
@@ -339,7 +340,7 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardImage(for item: ClipboardItem) -> NSImage? {
-        guard item.isImage else {
+        guard clipboardIsImageDataItem(item) else {
             return nil
         }
 
@@ -358,15 +359,19 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardHasPreviewImage(for item: ClipboardItem) -> Bool {
-        if item.isImage {
+        if clipboardIsImageDataItem(item) {
             return true
         }
 
         return metadataByItemID[item.id]?.firstImageFileURL != nil
     }
 
+    func clipboardIsFileItem(_ item: ClipboardItem) -> Bool {
+        !clipboardFileURLs(for: item).isEmpty
+    }
+
     func clipboardPreviewImage(for item: ClipboardItem) -> NSImage? {
-        if item.isImage {
+        if clipboardIsImageDataItem(item) {
             return clipboardImage(for: item)
         }
 
@@ -377,13 +382,25 @@ final class MacBarStore: ObservableObject {
         return previewImage(forFileURL: imageFileURL)
     }
 
-    func clipboardOCRImageDataList(for item: ClipboardItem) -> [Data] {
-        if let imageData = clipboardImageData(for: item) {
-            return [imageData]
+    func clipboardImageFileURLs(for item: ClipboardItem) -> [URL] {
+        metadataByItemID[item.id]?.imageFileURLs ?? []
+    }
+
+    func clipboardOCRSourceCount(for item: ClipboardItem) -> Int {
+        if clipboardIsImageDataItem(item) {
+            return 1
         }
 
-        let imageFileURLs = metadataByItemID[item.id]?.imageFileURLs ?? []
-        return imageFileURLs.compactMap(loadImageDataFromFile)
+        return clipboardImageFileURLs(for: item).count
+    }
+
+    func clipboardOCRFileURL(for item: ClipboardItem, at index: Int) -> URL? {
+        let imageFileURLs = clipboardImageFileURLs(for: item)
+        guard imageFileURLs.indices.contains(index) else {
+            return nil
+        }
+
+        return imageFileURLs[index]
     }
 
     func clipboardFileURLs(for item: ClipboardItem) -> [URL] {
@@ -399,7 +416,7 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardDisplayTitle(for item: ClipboardItem) -> String {
-        if item.isImage {
+        if clipboardIsImageDataItem(item) {
             return localized("ui.clipboard.item.image")
         }
 
@@ -893,6 +910,10 @@ final class MacBarStore: ObservableObject {
 
         fileImagePreviewCache[cacheKey] = image
         return image
+    }
+
+    private func clipboardIsImageDataItem(_ item: ClipboardItem) -> Bool {
+        item.isImage && !clipboardIsFileItem(item)
     }
 
     private func purgeUnusedStoredImages() {
