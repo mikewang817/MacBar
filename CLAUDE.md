@@ -52,8 +52,10 @@ docs/
   中央状态源，剪贴板历史、置顶、OCR 缓存、更新状态都在这里
 - `Sources/MacBar/Services/ClipboardMonitor.swift`
   剪贴板轮询与写回逻辑
+- `Sources/MacBar/Services/ClipboardImageStore.swift`
+  剪贴板图片落盘与读取缓存；历史里的图片不再直接长期塞进 `UserDefaults`
 - `Sources/MacBar/Services/OCRService.swift`
-  图片 OCR，基于 Vision，完全本地执行
+  图片 OCR，基于 Vision，完全本地执行；输入是图片二进制数据，识别在后台线程完成
 - `Sources/MacBar/AppVersion.swift`
   统一版本号入口；优先读 `Bundle.main`，读不到时回退到源码里的版本号
 - `Sources/MacBar/Services/LocalizationManager.swift`
@@ -71,6 +73,9 @@ docs/
 - 全局热键使用 Carbon `RegisterEventHotKey`。若修改热键，需同时检查注册逻辑与按键匹配逻辑。
 - 剪贴板捕获顺序要保持为：`文件 -> 文本 -> 图片`。复制 Finder 文件时剪贴板通常也带文本表示，顺序改错会产生行为回归。
 - 图片 OCR 结果只缓存到内存中的 `clipboardOCRCache`，删除或清空条目时要同步清理缓存。
+- 剪贴板历史中的图片二进制数据优先落到 `Application Support/MacBar/ClipboardImages/`，持久化到 `UserDefaults` 的历史只保留元数据；修改图片存储时要同时处理迁移、删除和孤儿文件清理。
+- 图片展示与复制优先走 `MacBarStore.clipboardImage(...)` / `clipboardImageData(...)`，不要在 View 里反复直接 `NSImage(data:)` 解码。
+- OCR 触发采用队列式调度，避免为整段历史同时启动大量 Vision 请求；如果改动 OCR 入口，要同时检查去重、优先级和面板关闭后的行为。
 - 搜索不仅搜文本，也搜图片 OCR 文本、文件名和文件完整路径；相关修改要覆盖这三类条目。
 - 复制任意条目后默认会关闭面板，并尽量回到打开前的前台应用；修改复制流时要同时检查 `MenuBarRootView` 的关闭回调和 `AppDelegate` 的前台应用恢复逻辑。
 - `Esc` 行为是两段式：搜索框有内容时清空搜索，否则关闭面板；改动搜索交互时不要破坏这条约定。
@@ -93,6 +98,7 @@ docs/
 - 做功能变更时，先判断影响的是 `Store`、`Service` 还是 `View`，不要把业务逻辑直接塞进 SwiftUI 视图层。
 - 涉及文件条目展示时，注意当前 UI 约定是“文件名 + 目录路径”双行展示，悬停显示完整路径。
 - 涉及文本条目展示时，注意当前列表约定是“首行标题 + 次行摘要/相对时间”双行展示。
+- 涉及图片条目展示时，优先复用 store 提供的缓存读取接口，并继续保持列表与预览共用同一份图片来源。
 - 涉及底部快捷键提示时，注意当前不是直接显示本地化整句，而是由 `MacBarStore.clipboardCopyShortcutHint()` / `clipboardDeleteShortcutHint()` 根据语言习惯生成。
 - 涉及预览面板尺寸时，要同步考虑 `MenuBarRootView.preferredPanelSize` 和 `AppDelegate` 的 panel size 更新逻辑。
 - 涉及资源或本地化包时，确认 `Package.swift` 的 `resources: [.process("Resources")]` 仍然满足需求。

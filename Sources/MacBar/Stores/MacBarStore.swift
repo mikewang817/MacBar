@@ -21,11 +21,19 @@ final class MacBarStore: ObservableObject {
     private let defaults: UserDefaults
     private let localizationManager: LocalizationManager
     private let clipboardMonitor: ClipboardMonitor
+    private let clipboardImageStore: ClipboardImageStore
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
     private var panelOpenCountSinceLastUpdateCheck: Int
     private var isCheckingForUpdates = false
+    private var imageDataCache: [String: Data] = [:]
+    private var imagePreviewCache: [String: NSImage] = [:]
+    private let relativeDateTimeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
 
     private enum Keys {
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
@@ -39,17 +47,21 @@ final class MacBarStore: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         localizationManager: LocalizationManager = LocalizationManager(),
-        clipboardMonitor: ClipboardMonitor = ClipboardMonitor()
+        clipboardMonitor: ClipboardMonitor = ClipboardMonitor(),
+        clipboardImageStore: ClipboardImageStore = ClipboardImageStore()
     ) {
         self.defaults = defaults
         self.localizationManager = localizationManager
         self.clipboardMonitor = clipboardMonitor
+        self.clipboardImageStore = clipboardImageStore
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
         self.isClipboardMonitoringEnabled = defaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool ?? true
         self.panelOpenCountSinceLastUpdateCheck = defaults.integer(forKey: Keys.updateCheckPanelOpenCount)
 
         normalizeClipboardState()
+        migrateLegacyClipboardImagesIfNeeded()
+        purgeUnusedStoredImages()
         configureClipboardMonitoring()
 
         localizationManager.$effectiveLanguageIdentifier
@@ -148,7 +160,7 @@ final class MacBarStore: ObservableObject {
         let item = clipboardHistory[index]
         if item.isFile {
             clipboardMonitor.copyFilesToPasteboard(item.fileURLs)
-        } else if let imageData = item.imageTIFFData {
+        } else if let imageData = clipboardImageData(for: item) {
             clipboardMonitor.copyImageToPasteboard(imageData)
         } else {
             clipboardMonitor.copyTextToPasteboard(item.content)
@@ -160,6 +172,8 @@ final class MacBarStore: ObservableObject {
                 id: item.id,
                 content: item.content,
                 imageTIFFData: item.imageTIFFData,
+                imageStorageKey: item.imageStorageKey,
+                imageFingerprint: item.imageFingerprint,
                 fileURLStrings: item.fileURLStrings,
                 capturedAt: Date()
             ),
@@ -176,6 +190,9 @@ final class MacBarStore: ObservableObject {
     }
 
     func setClipboardOCRText(for id: UUID, text: String) {
+        guard clipboardHistory.contains(where: { $0.id == id }) else {
+            return
+        }
         clipboardOCRCache[id] = text
     }
 
@@ -201,15 +218,18 @@ final class MacBarStore: ObservableObject {
     }
 
     func deleteClipboardItem(_ itemID: UUID) {
+        let removedItems = clipboardHistory.filter { $0.id == itemID }
         clipboardHistory.removeAll { $0.id == itemID }
         pinnedClipboardItemIDs.remove(itemID)
         clipboardOCRCache.removeValue(forKey: itemID)
+        removeStoredImages(for: removedItems)
         schedulePersistence()
     }
 
     func clearUnpinnedClipboardItems() -> StoreFeedback? {
         let originalCount = clipboardHistory.count
-        let removedIDs = Set(clipboardHistory.filter { !pinnedClipboardItemIDs.contains($0.id) }.map(\.id))
+        let removedItems = clipboardHistory.filter { !pinnedClipboardItemIDs.contains($0.id) }
+        let removedIDs = Set(removedItems.map(\.id))
         clipboardHistory.removeAll { !pinnedClipboardItemIDs.contains($0.id) }
 
         guard clipboardHistory.count != originalCount else {
@@ -217,6 +237,7 @@ final class MacBarStore: ObservableObject {
         }
 
         removedIDs.forEach { clipboardOCRCache.removeValue(forKey: $0) }
+        removeStoredImages(for: removedItems)
         schedulePersistence()
         return makeFeedback(
             titleKey: "feedback.clipboard.title",
@@ -229,9 +250,11 @@ final class MacBarStore: ObservableObject {
             return nil
         }
 
+        let removedItems = clipboardHistory
         clipboardHistory.removeAll()
         pinnedClipboardItemIDs.removeAll()
         clipboardOCRCache.removeAll()
+        removeStoredImages(for: removedItems)
         schedulePersistence()
 
         return makeFeedback(
@@ -251,10 +274,51 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardCapturedAtLabel(for item: ClipboardItem) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: item.capturedAt, relativeTo: Date())
+        relativeDateTimeFormatter.locale = Locale(identifier: localizationManager.effectiveLanguageIdentifier)
+        return relativeDateTimeFormatter.localizedString(for: item.capturedAt, relativeTo: Date())
+    }
+
+    func clipboardImageData(for item: ClipboardItem) -> Data? {
+        guard item.isImage else {
+            return nil
+        }
+
+        if let cacheKey = imageCacheKey(for: item), let cachedData = imageDataCache[cacheKey] {
+            return cachedData
+        }
+
+        let resolvedData: Data?
+        if let storageKey = item.imageStorageKey {
+            resolvedData = clipboardImageStore.loadImageData(for: storageKey)
+        } else {
+            resolvedData = item.imageTIFFData
+        }
+
+        guard let resolvedData else {
+            return nil
+        }
+
+        cacheClipboardImageData(resolvedData, for: item)
+        return resolvedData
+    }
+
+    func clipboardImage(for item: ClipboardItem) -> NSImage? {
+        guard item.isImage else {
+            return nil
+        }
+
+        if let cacheKey = imageCacheKey(for: item), let cachedImage = imagePreviewCache[cacheKey] {
+            return cachedImage
+        }
+
+        guard let imageData = clipboardImageData(for: item), let image = NSImage(data: imageData) else {
+            return nil
+        }
+
+        if let cacheKey = imageCacheKey(for: item) {
+            imagePreviewCache[cacheKey] = image
+        }
+        return image
     }
 
     private var filteredClipboardItems: [ClipboardItem] {
@@ -351,26 +415,32 @@ final class MacBarStore: ObservableObject {
             return
         }
 
-        if clipboardHistory.first?.imageTIFFData == rawData {
+        let fingerprint = clipboardImageStore.imageFingerprint(for: rawData)
+
+        if clipboardHistory.first?.imageFingerprint == fingerprint {
             return
         }
 
-        if let existingIndex = clipboardHistory.firstIndex(where: { $0.imageTIFFData == rawData }) {
+        if let existingIndex = clipboardHistory.firstIndex(where: { $0.imageFingerprint == fingerprint }) {
             let existing = clipboardHistory.remove(at: existingIndex)
             clipboardHistory.insert(
-                ClipboardItem(
-                    id: existing.id,
-                    content: "",
-                    imageTIFFData: rawData,
+                storedImageClipboardItem(
+                    from: existing,
+                    rawData: rawData,
+                    fingerprint: fingerprint,
                     capturedAt: Date()
                 ),
                 at: 0
             )
         } else {
-            clipboardHistory.insert(
-                ClipboardItem(content: "", imageTIFFData: rawData, capturedAt: Date()),
-                at: 0
+            let itemID = UUID()
+            let newItem = storedImageClipboardItem(
+                from: ClipboardItem(id: itemID, content: "", capturedAt: Date()),
+                rawData: rawData,
+                fingerprint: fingerprint,
+                capturedAt: Date()
             )
+            clipboardHistory.insert(newItem, at: 0)
         }
 
         normalizeClipboardState()
@@ -467,6 +537,62 @@ final class MacBarStore: ObservableObject {
         defaults.set(pinnedIDs, forKey: Keys.pinnedClipboardIDs)
     }
 
+    private func migrateLegacyClipboardImagesIfNeeded() {
+        var migratedHistory = clipboardHistory
+        var didChange = false
+
+        for index in migratedHistory.indices {
+            let item = migratedHistory[index]
+
+            if let legacyImageData = item.imageTIFFData {
+                let fingerprint = item.imageFingerprint ?? clipboardImageStore.imageFingerprint(for: legacyImageData)
+                let migratedItem = storedImageClipboardItem(
+                    from: item,
+                    rawData: legacyImageData,
+                    fingerprint: fingerprint,
+                    capturedAt: item.capturedAt
+                )
+
+                if migratedItem != item {
+                    migratedHistory[index] = migratedItem
+                    didChange = true
+                }
+                continue
+            }
+
+            guard
+                item.isImage,
+                let storageKey = item.imageStorageKey,
+                item.imageFingerprint == nil,
+                let storedImageData = clipboardImageStore.loadImageData(for: storageKey)
+            else {
+                continue
+            }
+
+            let migratedItem = ClipboardItem(
+                id: item.id,
+                content: item.content,
+                imageStorageKey: storageKey,
+                imageFingerprint: clipboardImageStore.imageFingerprint(for: storedImageData),
+                fileURLStrings: item.fileURLStrings,
+                capturedAt: item.capturedAt
+            )
+            cacheClipboardImageData(storedImageData, for: migratedItem)
+            migratedHistory[index] = migratedItem
+            didChange = true
+        }
+
+        guard didChange else {
+            return
+        }
+
+        clipboardHistory = migratedHistory
+        persistClipboardState(
+            history: migratedHistory,
+            pinnedIDs: serializedPinnedClipboardIDs()
+        )
+    }
+
     private static func loadClipboardHistory(defaults: UserDefaults) -> [ClipboardItem] {
         guard let data = defaults.data(forKey: Keys.clipboardHistoryData) else {
             return []
@@ -492,6 +618,85 @@ final class MacBarStore: ObservableObject {
                 ? localized(messageKey)
                 : localizationManager.localized(messageKey, arguments: arguments)
         )
+    }
+
+    private func storedImageClipboardItem(
+        from item: ClipboardItem,
+        rawData: Data,
+        fingerprint: String,
+        capturedAt: Date
+    ) -> ClipboardItem {
+        let storageKey = item.imageStorageKey ?? clipboardImageStore.storageKey(for: item.id)
+
+        do {
+            if !clipboardImageStore.fileExists(for: storageKey) || item.imageStorageKey == nil || item.imageTIFFData != nil {
+                try clipboardImageStore.saveImageData(rawData, for: storageKey)
+            }
+
+            let storedItem = ClipboardItem(
+                id: item.id,
+                content: item.content,
+                imageStorageKey: storageKey,
+                imageFingerprint: fingerprint,
+                fileURLStrings: item.fileURLStrings,
+                capturedAt: capturedAt
+            )
+            cacheClipboardImageData(rawData, for: storedItem)
+            return storedItem
+        } catch {
+            let fallbackItem = ClipboardItem(
+                id: item.id,
+                content: item.content,
+                imageTIFFData: rawData,
+                imageFingerprint: fingerprint,
+                fileURLStrings: item.fileURLStrings,
+                capturedAt: capturedAt
+            )
+            cacheClipboardImageData(rawData, for: fallbackItem)
+            return fallbackItem
+        }
+    }
+
+    private func imageCacheKey(for item: ClipboardItem) -> String? {
+        if let storageKey = item.imageStorageKey {
+            return storageKey
+        }
+
+        guard item.imageTIFFData != nil else {
+            return nil
+        }
+        return item.id.uuidString.lowercased()
+    }
+
+    private func cacheClipboardImageData(_ data: Data, for item: ClipboardItem) {
+        guard let cacheKey = imageCacheKey(for: item) else {
+            return
+        }
+
+        imageDataCache[cacheKey] = data
+    }
+
+    private func removeStoredImages(for removedItems: [ClipboardItem]) {
+        let remainingStorageKeys = Set(clipboardHistory.compactMap(\.imageStorageKey))
+        let removedStorageKeys = Set(removedItems.compactMap(\.imageStorageKey))
+
+        for storageKey in removedStorageKeys where !remainingStorageKeys.contains(storageKey) {
+            clipboardImageStore.removeImage(for: storageKey)
+            imageDataCache.removeValue(forKey: storageKey)
+            imagePreviewCache.removeValue(forKey: storageKey)
+        }
+
+        for item in removedItems where item.imageStorageKey == nil {
+            guard let cacheKey = imageCacheKey(for: item) else {
+                continue
+            }
+            imageDataCache.removeValue(forKey: cacheKey)
+            imagePreviewCache.removeValue(forKey: cacheKey)
+        }
+    }
+
+    private func purgeUnusedStoredImages() {
+        clipboardImageStore.purgeUnusedImages(keeping: Set(clipboardHistory.compactMap(\.imageStorageKey)))
     }
 
     private enum ShortcutHintStyle {

@@ -1,4 +1,5 @@
-import AppKit
+import Foundation
+import ImageIO
 import Vision
 
 enum OCRError: LocalizedError {
@@ -15,33 +16,20 @@ enum OCRError: LocalizedError {
     }
 }
 
-@MainActor
-final class OCRService {
-    func recognize(nsImage: NSImage) async throws -> String {
-        guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            throw OCRError.imageConversionFailed
-        }
-        return try await Task.detached(priority: .userInitiated) {
-            try Self.performOCR(on: cgImage)
-        }.value
+actor OCRService {
+    func recognize(imageData: Data) async throws -> String {
+        try Self.performOCR(on: imageData)
     }
 
-    private nonisolated static func performOCR(on cgImage: CGImage) throws -> String {
-        var result = ""
-        var recognitionError: Error?
-        let semaphore = DispatchSemaphore(value: 0)
-
-        let request = VNRecognizeTextRequest { req, err in
-            defer { semaphore.signal() }
-            if let err {
-                recognitionError = err
-                return
-            }
-            let observations = req.results as? [VNRecognizedTextObservation] ?? []
-            result = observations
-                .compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: "\n")
+    private nonisolated static func performOCR(on imageData: Data) throws -> String {
+        guard
+            let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+            let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
+        else {
+            throw OCRError.imageConversionFailed
         }
+
+        let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.automaticallyDetectsLanguage = true
         request.usesLanguageCorrection = true
@@ -50,13 +38,12 @@ final class OCRService {
         do {
             try handler.perform([request])
         } catch {
-            recognitionError = error
+            throw OCRError.recognitionFailed(error.localizedDescription)
         }
-        semaphore.wait()
 
-        if let recognitionError {
-            throw OCRError.recognitionFailed(recognitionError.localizedDescription)
-        }
-        return result
+        let observations = request.results ?? []
+        return observations
+            .compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: "\n")
     }
 }

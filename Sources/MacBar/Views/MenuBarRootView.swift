@@ -12,7 +12,9 @@ struct MenuBarRootView: View {
     @State private var feedbackDismissTask: Task<Void, Never>?
     @State private var pendingDestructiveAction: ClipboardDestructiveAction?
     @State private var selectedClipboardItemID: UUID?
-    @State private var isClipboardOCRProcessing: Bool = false
+    @State private var pendingOCRItemIDs: [UUID] = []
+    @State private var runningOCRItemIDs: Set<UUID> = []
+    @State private var ocrWorkerTask: Task<Void, Never>?
     @State private var keyDownMonitor: Any?
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
@@ -73,9 +75,6 @@ struct MenuBarRootView: View {
             if showPreview, let item = selectedClipboardItem {
                 clipboardPreviewPane(item: item)
                     .frame(width: previewWidth)
-                    .task(id: item.id) {
-                        await autoOCRClipboardItem(item)
-                    }
                     .transition(.move(edge: .leading).combined(with: .opacity))
 
                 Divider()
@@ -118,7 +117,7 @@ struct MenuBarRootView: View {
             }
 
             syncSelectedClipboardItem()
-            triggerOCRForUnprocessedImages()
+            enqueueOCRForUnprocessedImages(prioritizing: selectedClipboardItemID)
             installKeyMonitorIfNeeded()
         }
         .onChange(of: showPreview) {
@@ -128,7 +127,10 @@ struct MenuBarRootView: View {
             syncSelectedClipboardItem()
         }
         .onChange(of: store.clipboardHistory) {
-            triggerOCRForUnprocessedImages()
+            enqueueOCRForUnprocessedImages(prioritizing: selectedClipboardItemID)
+        }
+        .onChange(of: selectedClipboardItemID) {
+            enqueueSelectedImageOCRIfNeeded()
         }
         .onDisappear {
             focusedField = false
@@ -197,7 +199,7 @@ struct MenuBarRootView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-                    } else if let imageData = item.imageTIFFData, let image = NSImage(data: imageData) {
+                    } else if let image = store.clipboardImage(for: item) {
                         Image(nsImage: image)
                             .resizable()
                             .scaledToFit()
@@ -225,7 +227,7 @@ struct MenuBarRootView: View {
                                 .foregroundStyle(.primary)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                        } else if isClipboardOCRProcessing && selectedClipboardItem?.id == item.id {
+                        } else if runningOCRItemIDs.contains(item.id) || pendingOCRItemIDs.contains(item.id) {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
                                 Text(store.localized("ui.ocr.processing"))
@@ -355,7 +357,7 @@ struct MenuBarRootView: View {
         let pinned = store.pinnedClipboardItems
         let recent = store.recentClipboardItems
 
-        VStack(alignment: .leading, spacing: 14) {
+        LazyVStack(alignment: .leading, spacing: 14) {
             if pinned.isEmpty, recent.isEmpty {
                 if store.isClipboardSearching {
                     clipboardSearchEmptyState
@@ -478,7 +480,7 @@ struct MenuBarRootView: View {
                         .frame(width: 22)
                         .font(.body.weight(.medium))
                         .foregroundStyle(.primary)
-                } else if let imageData = item.imageTIFFData, let image = NSImage(data: imageData) {
+                } else if let image = store.clipboardImage(for: item) {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
@@ -901,27 +903,118 @@ struct MenuBarRootView: View {
         return option.label
     }
 
-    private func autoOCRClipboardItem(_ item: ClipboardItem) async {
-        guard item.isImage,
-              store.clipboardOCRCache[item.id] == nil,
-              let imageData = item.imageTIFFData,
-              let image = NSImage(data: imageData) else {
+    @MainActor
+    private func enqueueSelectedImageOCRIfNeeded() {
+        guard let selectedClipboardItem else {
             return
         }
-        if selectedClipboardItem?.id == item.id {
-            isClipboardOCRProcessing = true
+
+        enqueueOCR(for: [selectedClipboardItem], prioritizing: selectedClipboardItem.id)
+    }
+
+    @MainActor
+    private func enqueueOCRForUnprocessedImages(prioritizing prioritizedItemID: UUID?) {
+        let unprocessedImageItems = store.clipboardHistory.filter {
+            $0.isImage && store.clipboardOCRCache[$0.id] == nil
         }
-        if let text = try? await ocrService.recognize(nsImage: image) {
-            store.setClipboardOCRText(for: item.id, text: text)
+        enqueueOCR(for: unprocessedImageItems, prioritizing: prioritizedItemID)
+    }
+
+    @MainActor
+    private func enqueueOCR(for items: [ClipboardItem], prioritizing prioritizedItemID: UUID?) {
+        pendingOCRItemIDs.removeAll { itemID in
+            store.clipboardOCRCache[itemID] != nil || runningOCRItemIDs.contains(itemID)
         }
-        if selectedClipboardItem?.id == item.id {
-            isClipboardOCRProcessing = false
+
+        if let prioritizedItemID,
+           items.contains(where: { $0.id == prioritizedItemID && $0.isImage }),
+           store.clipboardOCRCache[prioritizedItemID] == nil,
+           !runningOCRItemIDs.contains(prioritizedItemID) {
+            pendingOCRItemIDs.removeAll { $0 == prioritizedItemID }
+            pendingOCRItemIDs.insert(prioritizedItemID, at: 0)
+        }
+
+        for item in items where item.isImage {
+            guard store.clipboardOCRCache[item.id] == nil else {
+                continue
+            }
+            guard !runningOCRItemIDs.contains(item.id) else {
+                continue
+            }
+            guard !pendingOCRItemIDs.contains(item.id) else {
+                continue
+            }
+
+            pendingOCRItemIDs.append(item.id)
+        }
+
+        startOCRWorkerIfNeeded()
+    }
+
+    @MainActor
+    private func startOCRWorkerIfNeeded() {
+        guard ocrWorkerTask == nil else {
+            return
+        }
+
+        ocrWorkerTask = Task {
+            await processQueuedOCRItems()
         }
     }
 
-    private func triggerOCRForUnprocessedImages() {
-        for item in store.clipboardHistory where item.isImage && store.clipboardOCRCache[item.id] == nil {
-            Task { await autoOCRClipboardItem(item) }
+    private func processQueuedOCRItems() async {
+        while !Task.isCancelled {
+            guard let job = await MainActor.run(body: { nextOCRJob() }) else {
+                break
+            }
+
+            let recognizedText = try? await ocrService.recognize(imageData: job.imageData)
+            await MainActor.run {
+                finishOCRJob(itemID: job.itemID, recognizedText: recognizedText)
+            }
+        }
+
+        await MainActor.run {
+            ocrWorkerTask = nil
+            if !pendingOCRItemIDs.isEmpty {
+                startOCRWorkerIfNeeded()
+            }
+        }
+    }
+
+    @MainActor
+    private func nextOCRJob() -> (itemID: UUID, imageData: Data)? {
+        while let nextItemID = pendingOCRItemIDs.first {
+            pendingOCRItemIDs.removeFirst()
+
+            guard !runningOCRItemIDs.contains(nextItemID) else {
+                continue
+            }
+
+            guard store.clipboardOCRCache[nextItemID] == nil else {
+                continue
+            }
+
+            guard let item = store.clipboardHistory.first(where: { $0.id == nextItemID }) else {
+                continue
+            }
+
+            guard let imageData = store.clipboardImageData(for: item) else {
+                continue
+            }
+
+            runningOCRItemIDs.insert(nextItemID)
+            return (nextItemID, imageData)
+        }
+
+        return nil
+    }
+
+    @MainActor
+    private func finishOCRJob(itemID: UUID, recognizedText: String?) {
+        runningOCRItemIDs.remove(itemID)
+        if let recognizedText {
+            store.setClipboardOCRText(for: itemID, text: recognizedText)
         }
     }
 

@@ -4,6 +4,8 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
     let id: UUID
     let content: String
     let imageTIFFData: Data?
+    let imageStorageKey: String?
+    let imageFingerprint: String?
     let fileURLStrings: [String]?
     let capturedAt: Date
 
@@ -11,18 +13,22 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         content: String,
         imageTIFFData: Data? = nil,
+        imageStorageKey: String? = nil,
+        imageFingerprint: String? = nil,
         fileURLStrings: [String]? = nil,
         capturedAt: Date = Date()
     ) {
         self.id = id
         self.content = content
         self.imageTIFFData = imageTIFFData
+        self.imageStorageKey = imageStorageKey
+        self.imageFingerprint = imageFingerprint
         self.fileURLStrings = fileURLStrings
         self.capturedAt = capturedAt
     }
 
     var isImage: Bool {
-        imageTIFFData != nil
+        imageStorageKey != nil || imageTIFFData != nil
     }
 
     var isFile: Bool {
@@ -111,5 +117,17 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
             count += 1
         }
         return count
+    }
+
+    func updatingCapturedAt(_ capturedAt: Date) -> ClipboardItem {
+        ClipboardItem(
+            id: id,
+            content: content,
+            imageTIFFData: imageTIFFData,
+            imageStorageKey: imageStorageKey,
+            imageFingerprint: imageFingerprint,
+            fileURLStrings: fileURLStrings,
+            capturedAt: capturedAt
+        )
     }
 }
