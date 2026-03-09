@@ -157,15 +157,23 @@ struct MenuBarRootView: View {
             .frame(width: mainWidth)
         }
         .frame(height: panelHeight)
-        .animation(.easeInOut(duration: 0.2), value: showPreview)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPreview)
         .background(
-            .regularMaterial,
+            .ultraThinMaterial,
             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.5), Color.white.opacity(0.0), Color.white.opacity(0.15)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.5
+                )
         )
+        .shadow(color: Color.black.opacity(0.15), radius: 24, y: 12)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onAppear {
             store.refreshClipboardFileAvailability(force: true)
@@ -334,10 +342,8 @@ struct MenuBarRootView: View {
                                     NSWorkspace.shared.activateFileViewerSelecting(refreshedURLs)
                                 } label: {
                                     Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
-                                        .font(.caption)
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .buttonStyle(GlassButtonStyle())
                                 .disabled(availableFileURLs.isEmpty)
 
                                 airDropButton(for: item)
@@ -366,15 +372,36 @@ struct MenuBarRootView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if isFileItem {
                     Text(store.localized("ui.clipboard.item.fileCount", fileURLs.count))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(Color.secondary.opacity(0.1))
+                                .background(.thinMaterial).clipShape(Capsule())
+                        )
+                        .overlay(Capsule().stroke(LinearGradient(colors: [Color.white.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.5))
                 } else if item.characterCount > 0 {
-                    Text(store.localized("ui.clipboard.item.characters", item.characterCount))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(store.localized("ui.clipboard.item.words", item.wordCount))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text(store.localized("ui.clipboard.item.characters", item.characterCount))
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(Color.secondary.opacity(0.1))
+                                    .background(.thinMaterial).clipShape(Capsule())
+                            )
+                            .overlay(Capsule().stroke(LinearGradient(colors: [Color.white.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.5))
+                        
+                        Text(store.localized("ui.clipboard.item.words", item.wordCount))
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(Color.secondary.opacity(0.1))
+                                    .background(.thinMaterial).clipShape(Capsule())
+                            )
+                            .overlay(Capsule().stroke(LinearGradient(colors: [Color.white.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.5))
+                    }
                 }
                 Text(store.clipboardCapturedAtLabel(for: item))
                     .font(.caption)
@@ -428,10 +455,8 @@ struct MenuBarRootView: View {
                     copyTextToPasteboard(ocrText)
                 } label: {
                     Label(store.localized("ui.clipboard.button.copy"), systemImage: "doc.on.doc")
-                        .font(.caption)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
+                .buttonStyle(GlassButtonStyle())
             }
 
             Text(ocrText)
@@ -511,8 +536,7 @@ struct MenuBarRootView: View {
                     Button(store.localized("ui.clipboard.button.clearSearch")) {
                         clearSearch()
                     }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
+                    .buttonStyle(GlassButtonStyle())
                 } else if !store.clipboardHistory.isEmpty {
                     statusChip(
                         systemImage: "tray.full.fill",
@@ -539,10 +563,8 @@ struct MenuBarRootView: View {
                     store.activePanel = .clipboard
                 } label: {
                     Label(store.localized("ui.settings.button.back"), systemImage: "chevron.left")
-                        .font(.caption)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(GlassButtonStyle())
             }
 
             Text(store.localized("ui.settings.subtitle"))
@@ -594,8 +616,8 @@ struct MenuBarRootView: View {
     private var clipboardEmptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "doc.on.clipboard")
-                .font(.title3)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.tertiary)
             Text(store.localized("ui.clipboard.empty.title"))
                 .font(.subheadline.weight(.semibold))
             Text(
@@ -612,8 +634,7 @@ struct MenuBarRootView: View {
                 Button(store.localized("ui.clipboard.button.resumeMonitoring")) {
                     presentFeedback(store.toggleClipboardMonitoring())
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(GlassButtonStyle(isProminent: true, tintColor: .accentColor))
                 .padding(.top, 4)
             }
         }
@@ -624,8 +645,8 @@ struct MenuBarRootView: View {
     private var clipboardSearchEmptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.title3)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.tertiary)
             Text(store.localized("ui.clipboard.empty.search.title"))
                 .font(.subheadline.weight(.semibold))
             Text(store.localized("ui.clipboard.empty.search.hint"))
@@ -634,8 +655,7 @@ struct MenuBarRootView: View {
             Button(store.localized("ui.clipboard.button.clearSearch")) {
                 clearSearch()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(GlassButtonStyle())
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
@@ -773,10 +793,8 @@ struct MenuBarRootView: View {
                             store.localized("ui.settings.button.checkUpdates"),
                             systemImage: "arrow.clockwise.circle"
                         )
-                        .font(.caption)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(GlassButtonStyle())
                     .disabled(store.isCheckingForUpdates)
 
                     if store.isCheckingForUpdates {
@@ -800,11 +818,8 @@ struct MenuBarRootView: View {
                             Task { await store.installUpdate() }
                         } label: {
                             Label(store.localized("ui.settings.button.installUpdate"), systemImage: "arrow.down.circle.fill")
-                                .font(.caption)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(.green)
+                        .buttonStyle(GlassButtonStyle(isProminent: true, tintColor: .green))
                     }
                 }
             }
@@ -834,11 +849,20 @@ struct MenuBarRootView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.quaternary.opacity(0.22))
+                .fill(Color.primary.opacity(0.03))
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.3), .clear, Color.white.opacity(0.05)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.5
+                )
         )
     }
 
@@ -962,45 +986,66 @@ struct MenuBarRootView: View {
             }
 
             HStack(spacing: 6) {
-                clipboardRowActionButton(
-                    systemImage: isPinned ? "pin.fill" : "pin",
-                    iconTint: isPinned ? .orange : .secondary,
-                    backgroundTint: isPinned ? .orange : nil,
-                    rotationDegrees: 45,
-                    help: isPinned
-                        ? store.localized("ui.clipboard.help.unpin")
-                        : store.localized("ui.clipboard.help.pin")
-                ) {
-                    store.toggleClipboardItemPinned(item.id)
+                if isPinned || isSelected {
+                    clipboardRowActionButton(
+                        systemImage: isPinned ? "pin.fill" : "pin",
+                        iconTint: isPinned ? .orange : .secondary,
+                        backgroundTint: isPinned ? .orange : nil,
+                        rotationDegrees: 45,
+                        help: isPinned
+                            ? store.localized("ui.clipboard.help.unpin")
+                            : store.localized("ui.clipboard.help.pin")
+                    ) {
+                        store.toggleClipboardItemPinned(item.id)
+                    }
                 }
 
-                airDropButton(for: item, compact: true)
+                if isSelected {
+                    airDropButton(for: item, compact: true)
 
-                clipboardRowActionButton(
-                    systemImage: "doc.on.doc",
-                    iconTint: canCopyItem ? .white : .secondary,
-                    backgroundTint: canCopyItem ? .accentColor : nil,
-                    isProminent: canCopyItem,
-                    isEnabled: canCopyItem,
-                    help: store.localized("ui.clipboard.button.copy")
-                ) {
-                    copyClipboardItemToPasteboard(item.id)
+                    clipboardRowActionButton(
+                        systemImage: "doc.on.doc",
+                        iconTint: canCopyItem ? .white : .secondary,
+                        backgroundTint: canCopyItem ? .accentColor : nil,
+                        isProminent: canCopyItem,
+                        isEnabled: canCopyItem,
+                        help: store.localized("ui.clipboard.button.copy")
+                    ) {
+                        copyClipboardItemToPasteboard(item.id)
+                    }
                 }
             }
+            .animation(.easeInOut(duration: 0.15), value: isSelected)
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    isSelected
-                        ? AnyShapeStyle(Color.accentColor.opacity(0.32))
-                        : AnyShapeStyle(.quaternary.opacity(0.25))
-                )
+            Group {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.15))
+                        .background(.thinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.04))
+                }
+            }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? Color.accentColor.opacity(0.95) : .clear, lineWidth: 1.2)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(
+                    isSelected
+                        ? AnyShapeStyle(LinearGradient(
+                            colors: [Color.white.opacity(0.4), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                        : AnyShapeStyle(Color.clear),
+                    lineWidth: 0.5
+                )
         )
+        .scaleEffect(isSelected ? 0.99 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
         .opacity(isUnavailableFileItem ? 0.6 : 1)
         .contentShape(Rectangle())
         .onHover { isHovering in
@@ -1364,11 +1409,8 @@ struct MenuBarRootView: View {
                             store.localized("ui.update.available", release.versionNumber),
                             systemImage: "arrow.down.circle.fill"
                         )
-                        .font(.caption)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.mini)
-                    .tint(.green)
+                    .buttonStyle(GlassButtonStyle(isProminent: true, tintColor: .green))
                 }
 
                 Text(AppVersion.displayString)
@@ -1536,7 +1578,7 @@ struct MenuBarRootView: View {
         }
 
         feedbackDismissTask?.cancel()
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             transientFeedback = feedback
         }
 
@@ -1547,7 +1589,7 @@ struct MenuBarRootView: View {
             }
 
             await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     transientFeedback = nil
                 }
                 feedbackDismissTask = nil
@@ -2063,10 +2105,8 @@ struct MenuBarRootView: View {
                 airDropClipboardItem(item)
             } label: {
                 Label(title, systemImage: "square.and.arrow.up")
-                    .font(.caption)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(GlassButtonStyle())
             .disabled(!canAirDropClipboardItem(item))
             .help(title)
         }
@@ -2103,29 +2143,34 @@ struct MenuBarRootView: View {
         isProminent: Bool = false,
         rotationDegrees: Double = 0
     ) -> some View {
-        let fillStyle: AnyShapeStyle
-        let strokeColor: Color
-
-        if let backgroundTint {
-            fillStyle = AnyShapeStyle(backgroundTint.opacity(isProminent ? 0.94 : 0.14))
-            strokeColor = backgroundTint.opacity(isProminent ? 0.24 : 0.18)
-        } else {
-            fillStyle = AnyShapeStyle(.thinMaterial)
-            strokeColor = Color.white.opacity(0.12)
-        }
-
         return Image(systemName: systemImage)
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(iconTint)
             .rotationEffect(.degrees(rotationDegrees))
             .frame(width: 30, height: 26)
             .background {
-                Capsule()
-                    .fill(fillStyle)
+                if let backgroundTint {
+                    Capsule()
+                        .fill(backgroundTint.opacity(isProminent ? 0.94 : 0.14))
+                        .background(isProminent ? AnyShapeStyle(.clear) : AnyShapeStyle(.thinMaterial))
+                        .clipShape(Capsule())
+                } else {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.04))
+                        .background(.thinMaterial)
+                        .clipShape(Capsule())
+                }
             }
             .overlay {
                 Capsule()
-                    .stroke(strokeColor, lineWidth: 1)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(isProminent ? 0.2 : 0.5), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.5
+                    )
             }
             .shadow(color: Color.black.opacity(isProminent ? 0.08 : 0.04), radius: 3, y: 1)
     }
@@ -2137,7 +2182,13 @@ struct MenuBarRootView: View {
             .padding(.vertical, 5)
             .background(
                 Capsule(style: .continuous)
-                    .fill(tint.opacity(0.14))
+                    .fill(tint.opacity(0.15))
+                    .background(.thinMaterial)
+                    .clipShape(Capsule())
+            )
+            .overlay(
+                Capsule()
+                    .stroke(LinearGradient(colors: [Color.white.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.5)
             )
             .foregroundStyle(tint)
     }
@@ -2162,12 +2213,22 @@ struct MenuBarRootView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color.primary.opacity(0.05))
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.4), .clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.5
+                )
         )
+        .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
     }
 
     private func fileStatusBadge(_ label: String, tint: Color) -> some View {
@@ -2177,7 +2238,13 @@ struct MenuBarRootView: View {
             .padding(.vertical, 2)
             .background(
                 Capsule(style: .continuous)
-                    .fill(tint.opacity(0.14))
+                    .fill(tint.opacity(0.15))
+                    .background(.thinMaterial)
+                    .clipShape(Capsule())
+            )
+            .overlay(
+                Capsule()
+                    .stroke(LinearGradient(colors: [Color.white.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.5)
             )
             .foregroundStyle(tint)
     }
@@ -2201,12 +2268,22 @@ struct MenuBarRootView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(Color.primary.opacity(0.05))
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.3), .clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.5
+                )
         )
+        .shadow(color: Color.black.opacity(0.08), radius: 4, y: 2)
     }
 
     private func requestClosePanel(restorePreviousApp: Bool) {
@@ -2316,5 +2393,38 @@ private struct CommandAwareSearchField: NSViewRepresentable {
                 window.makeFirstResponder(nsView)
             }
         }
+    }
+}
+
+fileprivate struct GlassButtonStyle: ButtonStyle {
+    var isProminent: Bool = false
+    var tintColor: Color = .accentColor
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isProminent ? tintColor.opacity(0.8) : Color.primary.opacity(0.04))
+                    .background(isProminent ? AnyShapeStyle(.clear) : AnyShapeStyle(.thinMaterial))
+                    .clipShape(Capsule())
+            )
+            .overlay(
+                Capsule()
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(isProminent ? 0.4 : 0.3), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.5
+                    )
+            )
+            .shadow(color: Color.black.opacity(isProminent ? 0.15 : 0.05), radius: isProminent ? 6 : 2, y: isProminent ? 3 : 1)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
     }
 }
