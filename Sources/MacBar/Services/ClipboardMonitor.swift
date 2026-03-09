@@ -12,7 +12,7 @@ final class ClipboardMonitor: ObservableObject {
     @Published private(set) var latestCapturedItem: ClipboardCapture?
 
     private let pasteboard: NSPasteboard
-    private let markerType = NSPasteboard.PasteboardType("com.patgo.macbar.source")
+    private let markerType = NSPasteboard.PasteboardType(BuildInfo.pasteboardMarkerType)
     private let markerValue = "macbar"
     private let pollInterval: TimeInterval
     private var timer: Timer?

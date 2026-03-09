@@ -2,20 +2,34 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleExecutable</key>
+    <string>MacBar</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleName</key>
     <string>MacBar</string>
     <key>CFBundleDisplayName</key>
     <string>MacBar</string>
     <key>CFBundleIdentifier</key>
-    <string>com.mikewang817.MacBar</string>
+    <string>app.macbar.macbar</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>21</string>
+    <string>1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.19</string>
+    <string>1.0.0</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

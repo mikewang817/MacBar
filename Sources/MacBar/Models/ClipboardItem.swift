@@ -7,6 +7,7 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
     let imageStorageKey: String?
     let imageFingerprint: String?
     let fileURLStrings: [String]?
+    let fileBookmarkDataByURLString: [String: Data]?
     let capturedAt: Date
 
     init(
@@ -16,6 +17,7 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
         imageStorageKey: String? = nil,
         imageFingerprint: String? = nil,
         fileURLStrings: [String]? = nil,
+        fileBookmarkDataByURLString: [String: Data]? = nil,
         capturedAt: Date = Date()
     ) {
         self.id = id
@@ -24,6 +26,7 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
         self.imageStorageKey = imageStorageKey
         self.imageFingerprint = imageFingerprint
         self.fileURLStrings = fileURLStrings
+        self.fileBookmarkDataByURLString = fileBookmarkDataByURLString
         self.capturedAt = capturedAt
     }
 
@@ -127,6 +130,7 @@ struct ClipboardItem: Identifiable, Codable, Hashable {
             imageStorageKey: imageStorageKey,
             imageFingerprint: imageFingerprint,
             fileURLStrings: fileURLStrings,
+            fileBookmarkDataByURLString: fileBookmarkDataByURLString,
             capturedAt: capturedAt
         )
     }

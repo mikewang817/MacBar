@@ -43,6 +43,7 @@ final class MacBarStore: ObservableObject {
     private let clipboardMonitor: ClipboardMonitor
     private let clipboardImageStore: ClipboardImageStore
     private let launchAtLoginService: LaunchAtLoginService
+    private let fileAccessService: SecurityScopedFileAccessService
     private let updateService = UpdateService()
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
@@ -76,11 +77,11 @@ final class MacBarStore: ObservableObject {
     private static let fileAvailabilityRefreshInterval: TimeInterval = 1.0
 
     private struct ClipboardItemResolvedState: Equatable {
-        let fileURLs: [URL]
-        let firstFileURL: URL?
-        let availableFileURLs: [URL]
-        let missingFileURLs: [URL]
-        let availableImageFileURLs: [URL]
+        let fileReferences: [SecurityScopedResolvedFile]
+        let firstFileReference: SecurityScopedResolvedFile?
+        let availableFileReferences: [SecurityScopedResolvedFile]
+        let missingFileReferences: [SecurityScopedResolvedFile]
+        let availableImageFileReferences: [SecurityScopedResolvedFile]
         let fileHelpText: String
         let previewTitle: String
         let previewSubtitle: String
@@ -88,20 +89,40 @@ final class MacBarStore: ObservableObject {
         let isImageDataItem: Bool
         let hasStoredImageData: Bool
 
+        var fileURLs: [URL] {
+            fileReferences.map(\.resolvedURL)
+        }
+
+        var firstFileURL: URL? {
+            firstFileReference?.resolvedURL
+        }
+
+        var availableFileURLs: [URL] {
+            availableFileReferences.map(\.resolvedURL)
+        }
+
+        var missingFileURLs: [URL] {
+            missingFileReferences.map(\.resolvedURL)
+        }
+
+        var availableImageFileURLs: [URL] {
+            availableImageFileReferences.map(\.resolvedURL)
+        }
+
         var isFileItem: Bool {
-            !fileURLs.isEmpty
+            !fileReferences.isEmpty
         }
 
         var isUnavailableFileItem: Bool {
-            isFileItem && availableFileURLs.isEmpty
+            isFileItem && availableFileReferences.isEmpty
         }
 
-        var previewImageFileURL: URL? {
-            availableImageFileURLs.first
+        var previewImageFileReference: SecurityScopedResolvedFile? {
+            availableImageFileReferences.first
         }
 
         var hasPreviewImage: Bool {
-            hasStoredImageData || previewImageFileURL != nil
+            hasStoredImageData || previewImageFileReference != nil
         }
 
         var ocrSources: [ClipboardResolvedOCRSource] {
@@ -109,12 +130,12 @@ final class MacBarStore: ObservableObject {
                 return [.clipboardImageData]
             }
 
-            return availableImageFileURLs.map(ClipboardResolvedOCRSource.fileURL)
+            return availableImageFileReferences.map { .fileURL($0.resolvedURL) }
         }
 
         var canCopy: Bool {
             if isFileItem {
-                return !availableFileURLs.isEmpty
+                return !availableFileReferences.isEmpty
             }
 
             if isImageDataItem {
@@ -136,13 +157,15 @@ final class MacBarStore: ObservableObject {
         localizationManager: LocalizationManager = LocalizationManager(),
         clipboardMonitor: ClipboardMonitor = ClipboardMonitor(),
         clipboardImageStore: ClipboardImageStore = ClipboardImageStore(),
-        launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService()
+        launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
+        fileAccessService: SecurityScopedFileAccessService = SecurityScopedFileAccessService()
     ) {
         self.defaults = defaults
         self.localizationManager = localizationManager
         self.clipboardMonitor = clipboardMonitor
         self.clipboardImageStore = clipboardImageStore
         self.launchAtLoginService = launchAtLoginService
+        self.fileAccessService = fileAccessService
         self.settings = Self.loadAppSettings(defaults: defaults)
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
@@ -151,6 +174,7 @@ final class MacBarStore: ObservableObject {
 
         normalizeClipboardState()
         migrateLegacyClipboardImagesIfNeeded()
+        migrateLegacyFileBookmarksIfNeeded()
         enforceRetentionPolicies(persistChanges: true)
         purgeUnusedStoredImages()
         rebuildResolvedClipboardItemState()
@@ -303,7 +327,7 @@ final class MacBarStore: ObservableObject {
     }
 
     func registerPanelOpenForUpdateCheck() async {
-        guard automaticallyChecksForUpdates else {
+        guard BuildInfo.supportsExternalUpdates, automaticallyChecksForUpdates else {
             return
         }
 
@@ -342,9 +366,11 @@ final class MacBarStore: ObservableObject {
         if clipboardIsFileItem(item) {
             refreshClipboardFileAvailability(force: true)
         }
-        let fileURLs = clipboardAvailableFileURLs(for: item)
-        if !fileURLs.isEmpty {
-            clipboardMonitor.copyFilesToPasteboard(fileURLs)
+        let availableFileReferences = resolvedState(for: item).availableFileReferences
+        if !availableFileReferences.isEmpty {
+            withAccessibleFileURLs(availableFileReferences) { fileURLs in
+                clipboardMonitor.copyFilesToPasteboard(fileURLs)
+            }
         } else if clipboardIsFileItem(item) {
             return nil
         } else if let imageData = clipboardImageData(for: item) {
@@ -362,6 +388,7 @@ final class MacBarStore: ObservableObject {
                 imageStorageKey: item.imageStorageKey,
                 imageFingerprint: item.imageFingerprint,
                 fileURLStrings: item.fileURLStrings,
+                fileBookmarkDataByURLString: item.fileBookmarkDataByURLString,
                 capturedAt: Date()
             ),
             at: 0
@@ -534,11 +561,11 @@ final class MacBarStore: ObservableObject {
             return clipboardImage(for: item)
         }
 
-        guard let imageFileURL = resolvedState.previewImageFileURL else {
+        guard let imageFileReference = resolvedState.previewImageFileReference else {
             return nil
         }
 
-        return previewImage(forFileURL: imageFileURL)
+        return previewImage(forFileReference: imageFileReference)
     }
 
     func clipboardImageFileURLs(for item: ClipboardItem) -> [URL] {
@@ -556,6 +583,15 @@ final class MacBarStore: ObservableObject {
         }
 
         return ocrSources[index]
+    }
+
+    func clipboardOCRImageData(for item: ClipboardItem, at index: Int) -> Data? {
+        let resolvedState = resolvedState(for: item)
+        guard resolvedState.availableImageFileReferences.indices.contains(index) else {
+            return nil
+        }
+
+        return loadImageDataFromFile(resolvedState.availableImageFileReferences[index])
     }
 
     func clipboardFileURLs(for item: ClipboardItem) -> [URL] {
@@ -580,6 +616,18 @@ final class MacBarStore: ObservableObject {
 
     func clipboardCanCopy(_ item: ClipboardItem) -> Bool {
         resolvedState(for: item).canCopy
+    }
+
+    func withClipboardFileAccess<Result>(
+        for item: ClipboardItem,
+        _ body: ([URL]) -> Result
+    ) -> Result? {
+        let availableFileReferences = resolvedState(for: item).availableFileReferences
+        guard !availableFileReferences.isEmpty else {
+            return nil
+        }
+
+        return withAccessibleFileURLs(availableFileReferences, body)
     }
 
     func refreshClipboardFileAvailability(force: Bool = false) {
@@ -727,8 +775,26 @@ final class MacBarStore: ObservableObject {
         }
 
         let urlStrings = urls.map(\.absoluteString)
+        let capturedBookmarks = mergedBookmarkDataByURLString(
+            for: urls,
+            existing: clipboardHistory.first?.fileBookmarkDataByURLString
+        )
 
         if clipboardHistory.first?.fileURLStrings == urlStrings {
+            if let firstItem = clipboardHistory.first,
+               firstItem.fileBookmarkDataByURLString != capturedBookmarks {
+                clipboardHistory[0] = ClipboardItem(
+                    id: firstItem.id,
+                    content: firstItem.content,
+                    imageTIFFData: firstItem.imageTIFFData,
+                    imageStorageKey: firstItem.imageStorageKey,
+                    imageFingerprint: firstItem.imageFingerprint,
+                    fileURLStrings: urlStrings,
+                    fileBookmarkDataByURLString: capturedBookmarks,
+                    capturedAt: firstItem.capturedAt
+                )
+                schedulePersistence()
+            }
             return
         }
 
@@ -739,13 +805,22 @@ final class MacBarStore: ObservableObject {
                     id: existing.id,
                     content: "",
                     fileURLStrings: urlStrings,
+                    fileBookmarkDataByURLString: mergedBookmarkDataByURLString(
+                        for: urls,
+                        existing: existing.fileBookmarkDataByURLString
+                    ),
                     capturedAt: Date()
                 ),
                 at: 0
             )
         } else {
             clipboardHistory.insert(
-                ClipboardItem(content: "", fileURLStrings: urlStrings, capturedAt: Date()),
+                ClipboardItem(
+                    content: "",
+                    fileURLStrings: urlStrings,
+                    fileBookmarkDataByURLString: capturedBookmarks,
+                    capturedAt: Date()
+                ),
                 at: 0
             )
         }
@@ -985,6 +1060,7 @@ final class MacBarStore: ObservableObject {
                 imageStorageKey: storageKey,
                 imageFingerprint: clipboardImageStore.imageFingerprint(for: storedImageData),
                 fileURLStrings: item.fileURLStrings,
+                fileBookmarkDataByURLString: item.fileBookmarkDataByURLString,
                 capturedAt: item.capturedAt
             )
             cacheClipboardImageData(storedImageData, for: migratedItem)
@@ -1001,6 +1077,70 @@ final class MacBarStore: ObservableObject {
             history: migratedHistory,
             pinnedIDs: serializedPinnedClipboardIDs()
         )
+    }
+
+    private func migrateLegacyFileBookmarksIfNeeded() {
+        var migratedHistory = clipboardHistory
+        var didChange = false
+
+        for index in migratedHistory.indices {
+            let item = migratedHistory[index]
+            guard item.isFile else {
+                continue
+            }
+
+            let mergedBookmarks = mergedBookmarkDataByURLString(
+                for: item.fileURLs,
+                existing: item.fileBookmarkDataByURLString
+            )
+
+            guard mergedBookmarks != item.fileBookmarkDataByURLString else {
+                continue
+            }
+
+            migratedHistory[index] = ClipboardItem(
+                id: item.id,
+                content: item.content,
+                imageTIFFData: item.imageTIFFData,
+                imageStorageKey: item.imageStorageKey,
+                imageFingerprint: item.imageFingerprint,
+                fileURLStrings: item.fileURLStrings,
+                fileBookmarkDataByURLString: mergedBookmarks,
+                capturedAt: item.capturedAt
+            )
+            didChange = true
+        }
+
+        guard didChange else {
+            return
+        }
+
+        clipboardHistory = migratedHistory
+        persistClipboardState(
+            history: migratedHistory,
+            pinnedIDs: serializedPinnedClipboardIDs()
+        )
+    }
+
+    private func mergedBookmarkDataByURLString(
+        for urls: [URL],
+        existing: [String: Data]?
+    ) -> [String: Data]? {
+        var mergedBookmarks = existing ?? [:]
+
+        for url in urls {
+            guard
+                url.isFileURL,
+                mergedBookmarks[url.absoluteString] == nil,
+                let bookmarkData = fileAccessService.makeReadOnlyBookmark(for: url)
+            else {
+                continue
+            }
+
+            mergedBookmarks[url.absoluteString] = bookmarkData
+        }
+
+        return mergedBookmarks.isEmpty ? nil : mergedBookmarks
     }
 
     private static func loadClipboardHistory(defaults: UserDefaults) -> [ClipboardItem] {
@@ -1185,35 +1325,37 @@ final class MacBarStore: ObservableObject {
     }
 
     private func makeResolvedState(for item: ClipboardItem) -> ClipboardItemResolvedState {
-        let fileURLs = (item.fileURLStrings ?? []).compactMap(URL.init(string:))
-        let imageFileURLs = fileURLs.filter(isImageFileURL)
-        let imageFileURLSet = Set(imageFileURLs.map(\.standardizedFileURL))
-        var availableFileURLs: [URL] = []
-        var missingFileURLs: [URL] = []
-        var availableImageFileURLs: [URL] = []
+        let fileBookmarkDataByURLString = item.fileBookmarkDataByURLString ?? [:]
+        let fileReferences = item.fileURLs.map { fileURL in
+            fileAccessService.resolveFile(
+                fileURL,
+                bookmarkData: fileBookmarkDataByURLString[fileURL.absoluteString]
+            )
+        }
+        var availableFileReferences: [SecurityScopedResolvedFile] = []
+        var missingFileReferences: [SecurityScopedResolvedFile] = []
+        var availableImageFileReferences: [SecurityScopedResolvedFile] = []
 
-        for fileURL in fileURLs {
-            let standardizedURL = fileURL.standardizedFileURL
-
-            if fileReferenceExists(standardizedURL) {
-                availableFileURLs.append(standardizedURL)
-                if imageFileURLSet.contains(standardizedURL) {
-                    availableImageFileURLs.append(standardizedURL)
+        for fileReference in fileReferences {
+            if fileReferenceExists(fileReference) {
+                availableFileReferences.append(fileReference)
+                if isImageFileReference(fileReference) {
+                    availableImageFileReferences.append(fileReference)
                 }
             } else {
-                missingFileURLs.append(standardizedURL)
+                missingFileReferences.append(fileReference)
             }
         }
 
         let previewTitle = item.previewTitle
         let previewSubtitle = item.previewSubtitle
         let searchableText: String
-        let isImageDataItem = item.isImage && fileURLs.isEmpty
+        let isImageDataItem = item.isImage && fileReferences.isEmpty
         let hasStoredImageData: Bool
 
         if item.isFile {
-            let fileNames = fileURLs.map(\.lastPathComponent).joined(separator: "\n")
-            let filePaths = fileURLs.map(\.path).joined(separator: "\n")
+            let fileNames = fileReferences.map { $0.resolvedURL.lastPathComponent }.joined(separator: "\n")
+            let filePaths = fileReferences.map { $0.resolvedURL.path }.joined(separator: "\n")
             searchableText = [fileNames, filePaths]
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
@@ -1232,12 +1374,12 @@ final class MacBarStore: ObservableObject {
         }
 
         return ClipboardItemResolvedState(
-            fileURLs: fileURLs,
-            firstFileURL: fileURLs.first,
-            availableFileURLs: availableFileURLs,
-            missingFileURLs: missingFileURLs,
-            availableImageFileURLs: availableImageFileURLs,
-            fileHelpText: fileURLs.map(\.path).joined(separator: "\n"),
+            fileReferences: fileReferences,
+            firstFileReference: fileReferences.first,
+            availableFileReferences: availableFileReferences,
+            missingFileReferences: missingFileReferences,
+            availableImageFileReferences: availableImageFileReferences,
+            fileHelpText: fileReferences.map { $0.resolvedURL.path }.joined(separator: "\n"),
             previewTitle: previewTitle,
             previewSubtitle: previewSubtitle,
             searchableText: searchableText,
@@ -1265,6 +1407,7 @@ final class MacBarStore: ObservableObject {
                 imageStorageKey: storageKey,
                 imageFingerprint: fingerprint,
                 fileURLStrings: item.fileURLStrings,
+                fileBookmarkDataByURLString: item.fileBookmarkDataByURLString,
                 capturedAt: capturedAt
             )
             cacheClipboardImageData(rawData, for: storedItem)
@@ -1276,6 +1419,7 @@ final class MacBarStore: ObservableObject {
                 imageTIFFData: rawData,
                 imageFingerprint: fingerprint,
                 fileURLStrings: item.fileURLStrings,
+                fileBookmarkDataByURLString: item.fileBookmarkDataByURLString,
                 capturedAt: capturedAt
             )
             cacheClipboardImageData(rawData, for: fallbackItem)
@@ -1349,13 +1493,27 @@ final class MacBarStore: ObservableObject {
         return fileType.conforms(to: .image)
     }
 
+    private func isImageFileReference(_ fileReference: SecurityScopedResolvedFile) -> Bool {
+        fileAccessService.withAccess(to: fileReference) { accessibleURL in
+            if let contentType = try? accessibleURL.resourceValues(forKeys: [.contentTypeKey]).contentType {
+                return contentType.conforms(to: .image)
+            }
+
+            return isImageFileURL(accessibleURL)
+        }
+    }
+
     private func fileImageCacheKey(for url: URL) -> String {
         "file:\(url.standardizedFileURL.absoluteString)"
     }
 
-    private func loadImageDataFromFile(_ url: URL) -> Data? {
-        let cacheKey = fileImageCacheKey(for: url)
-        guard fileReferenceExists(url) else {
+    private func fileImageCacheKey(for fileReference: SecurityScopedResolvedFile) -> String {
+        fileImageCacheKey(for: fileReference.resolvedURL)
+    }
+
+    private func loadImageDataFromFile(_ fileReference: SecurityScopedResolvedFile) -> Data? {
+        let cacheKey = fileImageCacheKey(for: fileReference)
+        guard fileReferenceExists(fileReference) else {
             fileImageDataCache.removeValue(forKey: cacheKey)
             fileImagePreviewCache.removeValue(forKey: cacheKey)
             return nil
@@ -1365,7 +1523,10 @@ final class MacBarStore: ObservableObject {
             return cachedData
         }
 
-        guard let imageData = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+        let imageData = fileAccessService.withAccess(to: fileReference) { accessibleURL in
+            try? Data(contentsOf: accessibleURL, options: [.mappedIfSafe])
+        }
+        guard let imageData else {
             return nil
         }
 
@@ -1373,9 +1534,9 @@ final class MacBarStore: ObservableObject {
         return imageData
     }
 
-    private func previewImage(forFileURL url: URL) -> NSImage? {
-        let cacheKey = fileImageCacheKey(for: url)
-        guard fileReferenceExists(url) else {
+    private func previewImage(forFileReference fileReference: SecurityScopedResolvedFile) -> NSImage? {
+        let cacheKey = fileImageCacheKey(for: fileReference)
+        guard fileReferenceExists(fileReference) else {
             fileImageDataCache.removeValue(forKey: cacheKey)
             fileImagePreviewCache.removeValue(forKey: cacheKey)
             return nil
@@ -1385,7 +1546,7 @@ final class MacBarStore: ObservableObject {
             return cachedImage
         }
 
-        guard let imageData = loadImageDataFromFile(url), let image = NSImage(data: imageData) else {
+        guard let imageData = loadImageDataFromFile(fileReference), let image = NSImage(data: imageData) else {
             return nil
         }
 
@@ -1397,12 +1558,45 @@ final class MacBarStore: ObservableObject {
         resolvedState(for: item).isImageDataItem
     }
 
+    private func fileReferenceExists(_ fileReference: SecurityScopedResolvedFile) -> Bool {
+        fileAccessService.withAccess(to: fileReference) { accessibleURL in
+            guard accessibleURL.isFileURL else {
+                return false
+            }
+
+            return FileManager.default.fileExists(atPath: accessibleURL.path)
+        }
+    }
+
     private func fileReferenceExists(_ url: URL) -> Bool {
         guard url.isFileURL else {
             return false
         }
 
         return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func withAccessibleFileURLs<Result>(
+        _ fileReferences: [SecurityScopedResolvedFile],
+        _ body: ([URL]) -> Result
+    ) -> Result {
+        var startedURLs: [URL] = []
+        for fileReference in fileReferences {
+            guard fileReference.bookmarkData != nil else {
+                continue
+            }
+
+            if fileReference.resolvedURL.startAccessingSecurityScopedResource() {
+                startedURLs.append(fileReference.resolvedURL)
+            }
+        }
+        defer {
+            for url in startedURLs {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        return body(fileReferences.map(\.resolvedURL))
     }
 
     private func purgeUnusedStoredImages() {
@@ -1441,6 +1635,13 @@ final class MacBarStore: ObservableObject {
     // MARK: - Update
 
     func checkForUpdates(force: Bool = false) async {
+        guard BuildInfo.supportsExternalUpdates else {
+            pendingUpdateRelease = nil
+            isUpdateInstalling = false
+            isCheckingForUpdates = false
+            return
+        }
+
         if !force && !automaticallyChecksForUpdates {
             return
         }
@@ -1472,6 +1673,12 @@ final class MacBarStore: ObservableObject {
     }
 
     func installUpdate() async {
+        guard BuildInfo.supportsExternalUpdates else {
+            pendingUpdateRelease = nil
+            isUpdateInstalling = false
+            return
+        }
+
         guard let release = pendingUpdateRelease else { return }
         isUpdateInstalling = true
         do {
@@ -1483,7 +1690,7 @@ final class MacBarStore: ObservableObject {
     }
 
     func startupUpdateCheckIfNeeded() async {
-        guard automaticallyChecksForUpdates else {
+        guard BuildInfo.supportsExternalUpdates, automaticallyChecksForUpdates else {
             return
         }
 
@@ -1492,6 +1699,14 @@ final class MacBarStore: ObservableObject {
     }
 
     func checkForUpdatesManually() async -> StoreFeedback {
+        guard BuildInfo.supportsExternalUpdates else {
+            pendingUpdateRelease = nil
+            return makeFeedback(
+                titleKey: "feedback.update.title",
+                messageKey: "feedback.update.upToDate"
+            )
+        }
+
         if isCheckingForUpdates {
             return makeFeedback(
                 titleKey: "feedback.update.title",

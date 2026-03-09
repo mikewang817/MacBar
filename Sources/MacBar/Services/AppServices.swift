@@ -15,13 +15,15 @@ final class AppServices {
         let localizationManager = LocalizationManager(defaults: sharedDefaults)
         let clipboardMonitor = ClipboardMonitor()
         let launchAtLoginService = LaunchAtLoginService()
+        let fileAccessService = SecurityScopedFileAccessService()
 
         self.localizationManager = localizationManager
         self.store = MacBarStore(
             defaults: sharedDefaults,
             localizationManager: localizationManager,
             clipboardMonitor: clipboardMonitor,
-            launchAtLoginService: launchAtLoginService
+            launchAtLoginService: launchAtLoginService,
+            fileAccessService: fileAccessService
         )
         self.airDropService = AirDropService()
         self.ocrService = OCRService()

@@ -327,11 +327,9 @@ struct MenuBarRootView: View {
                             HStack(spacing: 8) {
                                 Button {
                                     store.refreshClipboardFileAvailability(force: true)
-                                    let refreshedURLs = store.clipboardAvailableFileURLs(for: item)
-                                    guard !refreshedURLs.isEmpty else {
-                                        return
+                                    _ = store.withClipboardFileAccess(for: item) { refreshedURLs in
+                                        NSWorkspace.shared.activateFileViewerSelecting(refreshedURLs)
                                     }
-                                    NSWorkspace.shared.activateFileViewerSelecting(refreshedURLs)
                                 } label: {
                                     Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
                                         .font(.caption)
@@ -756,55 +754,57 @@ struct MenuBarRootView: View {
                 }
             }
 
-            settingsSection(
-                title: store.localized("ui.settings.section.update"),
-                footer: store.localized("ui.settings.section.update.footer")
-            ) {
-                Toggle(
-                    store.localized("ui.settings.option.autoCheckUpdates"),
-                    isOn: automaticUpdateCheckBinding
-                )
+            if BuildInfo.supportsExternalUpdates {
+                settingsSection(
+                    title: store.localized("ui.settings.section.update"),
+                    footer: store.localized("ui.settings.section.update.footer")
+                ) {
+                    Toggle(
+                        store.localized("ui.settings.option.autoCheckUpdates"),
+                        isOn: automaticUpdateCheckBinding
+                    )
 
-                HStack(spacing: 10) {
-                    Button {
-                        triggerManualUpdateCheck()
-                    } label: {
-                        Label(
-                            store.localized("ui.settings.button.checkUpdates"),
-                            systemImage: "arrow.clockwise.circle"
-                        )
-                        .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(store.isCheckingForUpdates)
-
-                    if store.isCheckingForUpdates {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(store.localized("feedback.update.checking"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if let release = store.pendingUpdateRelease {
-                        Text(store.localized("ui.settings.update.available", release.versionNumber))
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    if store.pendingUpdateRelease != nil {
+                    HStack(spacing: 10) {
                         Button {
-                            Task { await store.installUpdate() }
+                            triggerManualUpdateCheck()
                         } label: {
-                            Label(store.localized("ui.settings.button.installUpdate"), systemImage: "arrow.down.circle.fill")
-                                .font(.caption)
+                            Label(
+                                store.localized("ui.settings.button.checkUpdates"),
+                                systemImage: "arrow.clockwise.circle"
+                            )
+                            .font(.caption)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .tint(.green)
+                        .disabled(store.isCheckingForUpdates)
+
+                        if store.isCheckingForUpdates {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(store.localized("feedback.update.checking"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if let release = store.pendingUpdateRelease {
+                            Text(store.localized("ui.settings.update.available", release.versionNumber))
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        if store.pendingUpdateRelease != nil {
+                            Button {
+                                Task { await store.installUpdate() }
+                            } label: {
+                                Label(store.localized("ui.settings.button.installUpdate"), systemImage: "arrow.down.circle.fill")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(.green)
+                        }
                     }
                 }
             }
@@ -1349,26 +1349,28 @@ struct MenuBarRootView: View {
 
                 Spacer()
 
-                if store.isUpdateInstalling {
-                    HStack(spacing: 4) {
-                        ProgressView().controlSize(.mini)
-                        Text(store.localized("ui.update.installing"))
+                if BuildInfo.supportsExternalUpdates {
+                    if store.isUpdateInstalling {
+                        HStack(spacing: 4) {
+                            ProgressView().controlSize(.mini)
+                            Text(store.localized("ui.update.installing"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let release = store.pendingUpdateRelease {
+                        Button {
+                            Task { await store.installUpdate() }
+                        } label: {
+                            Label(
+                                store.localized("ui.update.available", release.versionNumber),
+                                systemImage: "arrow.down.circle.fill"
+                            )
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.mini)
+                        .tint(.green)
                     }
-                } else if let release = store.pendingUpdateRelease {
-                    Button {
-                        Task { await store.installUpdate() }
-                    } label: {
-                        Label(
-                            store.localized("ui.update.available", release.versionNumber),
-                            systemImage: "arrow.down.circle.fill"
-                        )
-                        .font(.caption)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.mini)
-                    .tint(.green)
                 }
 
                 Text(AppVersion.displayString)
@@ -1889,8 +1891,11 @@ struct MenuBarRootView: View {
                 return nil
             }
             return .imageData(imageData)
-        case let .fileURL(fileURL):
-            return .fileURL(fileURL)
+        case .fileURL:
+            guard let imageData = store.clipboardOCRImageData(for: item, at: sourceIndex) else {
+                return nil
+            }
+            return .imageData(imageData)
         }
     }
 
@@ -2014,7 +2019,9 @@ struct MenuBarRootView: View {
 
     private func canAirDropClipboardItem(_ item: ClipboardItem) -> Bool {
         if store.clipboardIsFileItem(item) {
-            return airDropService.canSendFiles(store.clipboardAvailableFileURLs(for: item))
+            return store.withClipboardFileAccess(for: item) { urls in
+                airDropService.canSendFiles(urls)
+            } ?? false
         }
 
         guard let image = store.clipboardImage(for: item) else {
@@ -2027,7 +2034,9 @@ struct MenuBarRootView: View {
     private func airDropClipboardItem(_ item: ClipboardItem) {
         if store.clipboardIsFileItem(item) {
             store.refreshClipboardFileAvailability(force: true)
-            _ = airDropService.sendFiles(store.clipboardAvailableFileURLs(for: item))
+            _ = store.withClipboardFileAccess(for: item) { urls in
+                airDropService.sendFiles(urls)
+            }
             return
         }
 

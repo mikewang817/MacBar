@@ -73,5 +73,8 @@ struct AppSettings: Codable, Equatable {
             Self.minimumImageStorageLimitMB,
             min(Self.maximumImageStorageLimitMB, maxStoredImageCacheSizeMB)
         )
+        if !BuildInfo.supportsExternalUpdates {
+            automaticallyChecksForUpdates = false
+        }
     }
 }
