@@ -154,12 +154,18 @@ final class MacBarStore: ObservableObject {
 
     init(
         defaults: UserDefaults = .standard,
-        localizationManager: LocalizationManager = LocalizationManager(),
-        clipboardMonitor: ClipboardMonitor = ClipboardMonitor(),
-        clipboardImageStore: ClipboardImageStore = ClipboardImageStore(),
-        launchAtLoginService: LaunchAtLoginService = LaunchAtLoginService(),
-        fileAccessService: SecurityScopedFileAccessService = SecurityScopedFileAccessService()
+        localizationManager: LocalizationManager? = nil,
+        clipboardMonitor: ClipboardMonitor? = nil,
+        clipboardImageStore: ClipboardImageStore? = nil,
+        launchAtLoginService: LaunchAtLoginService? = nil,
+        fileAccessService: SecurityScopedFileAccessService? = nil
     ) {
+        let localizationManager = localizationManager ?? LocalizationManager()
+        let clipboardMonitor = clipboardMonitor ?? ClipboardMonitor()
+        let clipboardImageStore = clipboardImageStore ?? ClipboardImageStore()
+        let launchAtLoginService = launchAtLoginService ?? LaunchAtLoginService()
+        let fileAccessService = fileAccessService ?? SecurityScopedFileAccessService()
+
         self.defaults = defaults
         self.localizationManager = localizationManager
         self.clipboardMonitor = clipboardMonitor

@@ -20,8 +20,15 @@ struct LanguageOption: Identifiable, Hashable {
 final class LocalizationManager: ObservableObject {
     static let systemLanguageCode = "system"
     private static let supportedLocalizationCodes = ["en", "zh-Hans", "de", "fr", "ja", "ko", "ar"]
+    private static let resourceBundle: Bundle = {
+        #if SWIFT_PACKAGE
+        return .module
+        #else
+        return .main
+        #endif
+    }()
     private static let cachedLocalizationCodes: [String] = {
-        let available = Set(Bundle.module.localizations.filter { $0.lowercased() != "base" })
+        let available = Set(resourceBundle.localizations.filter { $0.lowercased() != "base" })
         return supportedLocalizationCodes.filter { available.contains($0) }
     }()
 
@@ -246,13 +253,13 @@ final class LocalizationManager: ObservableObject {
             return cachedBundle
         }
 
-        if let path = Bundle.module.path(forResource: localizationIdentifier, ofType: "lproj"),
+        if let path = Self.resourceBundle.path(forResource: localizationIdentifier, ofType: "lproj"),
            let localizedBundle = Bundle(path: path) {
             bundleCache[localizationIdentifier] = localizedBundle
             return localizedBundle
         }
 
-        bundleCache[localizationIdentifier] = .module
-        return .module
+        bundleCache[localizationIdentifier] = Self.resourceBundle
+        return Self.resourceBundle
     }
 }

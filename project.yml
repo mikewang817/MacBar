@@ -1,0 +1,36 @@
+name: MacBar
+
+options:
+  createIntermediateGroups: true
+  developmentLanguage: en
+  deploymentTarget:
+    macOS: "14.0"
+
+settings:
+  base:
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    CODE_SIGN_ENTITLEMENTS: MacBar.entitlements
+    CODE_SIGN_STYLE: Automatic
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: P69755L5ZN
+    GENERATE_INFOPLIST_FILE: NO
+    INFOPLIST_FILE: Sources/MacBar/Info.plist
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: 1.0.0
+    PRODUCT_BUNDLE_IDENTIFIER: app.macbar.macbar
+    PRODUCT_NAME: MacBar
+
+targets:
+  MacBar:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/MacBar
+        excludes:
+          - Info.plist
+          - Resources
+          - .DS_Store
+      - path: Sources/MacBar/Resources
+        buildPhase: resources
+        excludes:
+          - .DS_Store
