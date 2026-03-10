@@ -10,5 +10,6 @@ DerivedData/
 .bundle/
 vendor/
 .env.fastlane
+fastlane/report.xml
 scripts/.translation_cache.json
 Sources/MacBar/Resources/EmbeddedModels/
