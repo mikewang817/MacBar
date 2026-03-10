@@ -27,8 +27,25 @@ fi
 if [[ -z "$APP_SIGN_IDENTITY" ]]; then
   APP_SIGN_IDENTITY="$(
     security find-identity -v -p codesigning 2>/dev/null \
+      | sed -n 's/.*"\(Mac App Distribution: [^"]*\)"/\1/p' \
+      | head -n 1 || true
+  )"
+fi
+
+if [[ -z "$APP_SIGN_IDENTITY" ]]; then
+  APP_SIGN_IDENTITY="$(
+    security find-identity -v -p codesigning 2>/dev/null \
       | sed -n 's/.*"\(3rd Party Mac Developer Application: [^"]*\)"/\1/p' \
-      | head -n 1
+      | head -n 1 || true
+  )"
+fi
+
+if [[ -z "$INSTALLER_SIGN_IDENTITY" ]]; then
+  INSTALLER_SIGN_IDENTITY="$(
+    security find-certificate -a -c 'Mac Installer Distribution:' -p 2>/dev/null \
+      | openssl x509 -subject -noout 2>/dev/null \
+      | sed -E -n 's/^subject=.*CN ?= ?(Mac Installer Distribution: .*), OU=.*$/\1/p' \
+      | head -n 1 || true
   )"
 fi
 
@@ -37,7 +54,7 @@ if [[ -z "$INSTALLER_SIGN_IDENTITY" ]]; then
     security find-certificate -a -c '3rd Party Mac Developer Installer:' -p 2>/dev/null \
       | openssl x509 -subject -noout 2>/dev/null \
       | sed -E -n 's/^subject=.*CN ?= ?(3rd Party Mac Developer Installer: .*), OU=.*$/\1/p' \
-      | head -n 1
+      | head -n 1 || true
   )"
 fi
 
