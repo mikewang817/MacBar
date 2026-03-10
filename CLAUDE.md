@@ -131,6 +131,13 @@ git diff --stat origin/master..HEAD
 ```
 
 - 如果需要继续修改网站，先执行 `git switch codex/website-local`；网站部署到 Cloudflare Pages 不依赖 push GitHub。
+- 网站部署默认使用临时 Wrangler 命令：
+
+```bash
+npx --yes wrangler pages deploy website
+```
+
+- 除非用户明确要求安装全局 `wrangler`，否则优先使用上述 `npx` 方式，不要依赖本机全局安装。
 - 每次完成 `gh release create ...` 之后，必须先询问用户：是否要将新版本的 MacBar 同步到站点。
 - 只有在用户明确同意后，AI 才执行 `./scripts/sync_pages_release.sh` 并完成站点同步。
 - 该脚本会自动读取最新 GitHub Release，在本地分支 `codex/website-local` 更新 `website/downloads/`、`/download/latest` 和 `update.json`，然后部署到 Cloudflare Pages。
@@ -138,6 +145,14 @@ git diff --stat origin/master..HEAD
 - 运行脚本前，需确保本机已登录 Wrangler，或环境中存在可用的 `CLOUDFLARE_API_TOKEN`。
 
 ## 发布 Release 流程
+
+## App Store 与证书管理约定
+
+- 对于 App Store Connect 上传、TestFlight、正式发布、证书、provisioning profile、签名配置等事项，默认优先使用 `fastlane`。
+- 手工点 Xcode、手工切签名、手工上传只作为排障或临时兜底，不再作为主流程。
+- 若仓库里已有 `fastlane/`、`Fastfile`、`Appfile`、`Matchfile` 或相关 lane，优先在现有配置上扩展。
+- 若用户要求“搞定上架”“管理证书”“自动化发布”，优先补 fastlane lane，而不是继续堆一次性 shell 脚本。
+- 证书、profile、上传、提审相关能力应尽量沉淀进 fastlane，保证后续可重复执行。
 
 每次发布新版本按以下步骤执行：
 

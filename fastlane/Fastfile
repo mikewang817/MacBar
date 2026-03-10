@@ -1,0 +1,160 @@
+require "shellwords"
+
+default_platform(:mac)
+
+dotenv = File.expand_path("../.env.fastlane", __dir__)
+Dotenv.load(dotenv) if File.exist?(dotenv)
+
+ROOT = File.expand_path("..", __dir__)
+PROJECT_PATH = File.join(ROOT, "MacBar.xcodeproj")
+SCHEME = "MacBar"
+APP_IDENTIFIER = "app.macbar.macbar"
+TEAM_ID = "P69755L5ZN"
+INFO_PLIST_PATH = File.join(ROOT, "Sources/MacBar/Info.plist")
+APP_VERSION_SWIFT_PATH = File.join(ROOT, "Sources/MacBar/AppVersion.swift")
+ARCHIVE_SCRIPT_PATH = File.join(ROOT, "scripts/archive_app_store.sh")
+APPSTORE_BUILD_ROOT = "/tmp/MacBar-AppStore-Fastlane"
+APPSTORE_PKG_PATH = "#{APPSTORE_BUILD_ROOT}/MacBar-AppStore-Upload.pkg"
+
+def update_file(path)
+  content = File.read(path)
+  updated = yield(content)
+  File.write(path, updated) if updated != content
+end
+
+def require_env!(key)
+  value = ENV[key]
+  UI.user_error!("Missing required environment variable #{key}") if value.to_s.strip.empty?
+  value
+end
+
+platform :mac do
+  before_all do
+    ENV["FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT"] ||= "120"
+    ENV["FASTLANE_XCODE_LIST_TIMEOUT"] ||= "120"
+  end
+
+  desc "Show the lanes used for Mac App Store release management"
+  lane :about do
+    UI.message("Available lanes: verify_env, bump_version, sync_signing, build_app_store, upload_app_store, release_app_store")
+  end
+
+  desc "Verify App Store Connect API key and match environment wiring"
+  lane :verify_env do
+    UI.message("Checking App Store Connect API key and match configuration")
+    key_file = require_env!("APP_STORE_CONNECT_KEY_FILE")
+    UI.user_error!("Missing API key file at #{key_file}") unless File.exist?(key_file)
+    require_env!("APP_STORE_CONNECT_KEY_ID")
+    require_env!("APP_STORE_CONNECT_ISSUER_ID")
+    require_env!("MATCH_GIT_URL")
+    require_env!("MATCH_PASSWORD")
+    UI.success("Fastlane environment looks ready")
+  end
+
+  desc "Update Info.plist and AppVersion.swift fallback values"
+  lane :bump_version do |options|
+    version = options[:version]
+    UI.user_error!("Pass version: bundle exec fastlane mac bump_version version:1.0.1") if version.to_s.strip.empty?
+
+    build = (options[:build] || latest_testflight_build_number(
+      app_identifier: APP_IDENTIFIER,
+      platform: "osx",
+      initial_build_number: 0
+    ) + 1).to_s
+
+    increment_version_number(
+      xcodeproj: PROJECT_PATH,
+      version_number: version
+    )
+    increment_build_number(
+      xcodeproj: PROJECT_PATH,
+      build_number: build
+    )
+
+    update_plist(
+      plist_path: INFO_PLIST_PATH,
+      block: proc do |plist|
+        plist["CFBundleShortVersionString"] = version
+        plist["CFBundleVersion"] = build
+      end
+    )
+
+    update_file(APP_VERSION_SWIFT_PATH) do |content|
+      content
+        .sub(/fallbackShortVersion = "[^"]+"/, "fallbackShortVersion = \"#{version}\"")
+        .sub(/fallbackBuildNumber = "[^"]+"/, "fallbackBuildNumber = \"#{build}\"")
+    end
+
+    UI.success("Updated version to #{version} (#{build})")
+  end
+
+  desc "Sync Mac App Store certificates and profiles via match"
+  lane :sync_signing do |options|
+    key = app_store_connect_api_key(
+      key_id: require_env!("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: require_env!("APP_STORE_CONNECT_ISSUER_ID"),
+      key_filepath: require_env!("APP_STORE_CONNECT_KEY_FILE")
+    )
+
+    match(
+      api_key: key,
+      type: options[:type] || "appstore",
+      readonly: options.fetch(:readonly, false),
+      app_identifier: [APP_IDENTIFIER],
+      team_id: TEAM_ID,
+      git_branch: options[:git_branch] || ENV["MATCH_GIT_BRANCH"]
+    )
+  end
+
+  desc "Archive and package the Mac App Store upload build"
+  lane :build_app_store do |options|
+    build_root = options[:build_root] || APPSTORE_BUILD_ROOT
+    pkg_path = options[:pkg_path] || APPSTORE_PKG_PATH
+
+    sh(
+      {
+        "PROJECT_PATH" => PROJECT_PATH,
+        "SCHEME" => SCHEME,
+        "CONFIGURATION" => "Release",
+        "BUILD_ROOT" => build_root,
+        "PKG_PATH" => pkg_path,
+        "PROFILE_PATH" => options[:profile_path].to_s,
+        "APP_SIGN_IDENTITY" => options[:app_sign_identity].to_s,
+        "INSTALLER_SIGN_IDENTITY" => options[:installer_sign_identity].to_s
+      },
+      "bash #{Shellwords.escape(ARCHIVE_SCRIPT_PATH)}"
+    )
+
+    Actions.lane_context[:MACBAR_APPSTORE_PKG_PATH] = pkg_path
+    pkg_path
+  end
+
+  desc "Upload the packaged macOS build to App Store Connect"
+  lane :upload_app_store do |options|
+    key = app_store_connect_api_key(
+      key_id: require_env!("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: require_env!("APP_STORE_CONNECT_ISSUER_ID"),
+      key_filepath: require_env!("APP_STORE_CONNECT_KEY_FILE")
+    )
+
+    pkg_path = options[:pkg_path] || Actions.lane_context[:MACBAR_APPSTORE_PKG_PATH] || APPSTORE_PKG_PATH
+
+    upload_to_app_store(
+      api_key: key,
+      pkg: pkg_path,
+      platform: "osx",
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: false,
+      force: true
+    )
+  end
+
+  desc "Sync signing, build the pkg, and upload it to App Store Connect"
+  lane :release_app_store do |options|
+    verify_env
+    sync_signing(readonly: options.fetch(:readonly, false)) if options.fetch(:sync_signing, true)
+    build_app_store(options)
+    upload_app_store(pkg_path: Actions.lane_context[:MACBAR_APPSTORE_PKG_PATH])
+  end
+end
