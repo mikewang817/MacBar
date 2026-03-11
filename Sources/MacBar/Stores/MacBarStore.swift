@@ -398,17 +398,69 @@ final class MacBarStore: ObservableObject {
         if clipboardIsFileItem(item) {
             refreshClipboardFileAvailability(force: true)
         }
+
+        if let imageTIFFData = clipboardImageTIFFDataForCopy(for: item) {
+            clipboardMonitor.copyImageToPasteboard(imageTIFFData)
+        } else {
+            let availableFileReferences = resolvedState(for: item).availableFileReferences
+            if !availableFileReferences.isEmpty {
+                withAccessibleFileURLs(availableFileReferences) { fileURLs in
+                    clipboardMonitor.copyFilesToPasteboard(fileURLs)
+                }
+            } else if clipboardIsFileItem(item) {
+                return nil
+            } else if let imageData = clipboardImageData(for: item) {
+                clipboardMonitor.copyImageToPasteboard(imageData)
+            } else {
+                clipboardMonitor.copyTextToPasteboard(item.content)
+            }
+        }
+
+        clipboardHistory.remove(at: index)
+        clipboardHistory.insert(
+            ClipboardItem(
+                id: item.id,
+                content: item.content,
+                imageTIFFData: item.imageTIFFData,
+                imageStorageKey: item.imageStorageKey,
+                imageFingerprint: item.imageFingerprint,
+                fileURLStrings: item.fileURLStrings,
+                fileBookmarkDataByURLString: item.fileBookmarkDataByURLString,
+                capturedAt: Date()
+            ),
+            at: 0
+        )
+
+        if persistHistoryImmediately {
+            schedulePersistence()
+        }
+        return makeFeedback(
+            titleKey: "feedback.clipboard.title",
+            messageKey: "feedback.clipboard.copied"
+        )
+    }
+
+    func copyClipboardItemAsFile(_ itemID: UUID, persistHistoryImmediately: Bool = true) -> StoreFeedback? {
+        guard let index = clipboardHistory.firstIndex(where: { $0.id == itemID }) else {
+            return nil
+        }
+
+        let item = clipboardHistory[index]
+        if clipboardIsFileItem(item) {
+            refreshClipboardFileAvailability(force: true)
+        }
+
         let availableFileReferences = resolvedState(for: item).availableFileReferences
         if !availableFileReferences.isEmpty {
             withAccessibleFileURLs(availableFileReferences) { fileURLs in
                 clipboardMonitor.copyFilesToPasteboard(fileURLs)
             }
+        } else if let exportURL = imageFileExportURL(for: item) {
+            clipboardMonitor.copyFilesToPasteboard([exportURL])
         } else if clipboardIsFileItem(item) {
             return nil
-        } else if let imageData = clipboardImageData(for: item) {
-            clipboardMonitor.copyImageToPasteboard(imageData)
         } else {
-            clipboardMonitor.copyTextToPasteboard(item.content)
+            return copyClipboardItem(itemID, persistHistoryImmediately: persistHistoryImmediately)
         }
 
         clipboardHistory.remove(at: index)
@@ -650,7 +702,23 @@ final class MacBarStore: ObservableObject {
     }
 
     func clipboardCanCopy(_ item: ClipboardItem) -> Bool {
-        resolvedState(for: item).canCopy
+        let resolvedState = resolvedState(for: item)
+
+        if resolvedState.hasPreviewImage {
+            return clipboardImageTIFFDataForCopy(for: item) != nil
+        }
+
+        return resolvedState.canCopy
+    }
+
+    func clipboardCanCopyAsFile(_ item: ClipboardItem) -> Bool {
+        let resolvedState = resolvedState(for: item)
+
+        if !resolvedState.availableFileReferences.isEmpty {
+            return true
+        }
+
+        return imageFileExportURL(for: item) != nil
     }
 
     func withClipboardFileAccess<Result>(
@@ -1684,6 +1752,54 @@ final class MacBarStore: ObservableObject {
 
     private func clipboardIsImageDataItem(_ item: ClipboardItem) -> Bool {
         resolvedState(for: item).isImageDataItem
+    }
+
+    private func clipboardImageTIFFDataForCopy(for item: ClipboardItem) -> Data? {
+        let resolvedState = resolvedState(for: item)
+
+        if resolvedState.isImageDataItem {
+            return clipboardImageData(for: item)
+        }
+
+        guard resolvedState.hasPreviewImage,
+              let previewImage = clipboardPreviewImage(for: item)
+        else {
+            return nil
+        }
+
+        return previewImage.tiffRepresentation
+    }
+
+    private func imageFileExportURL(for item: ClipboardItem) -> URL? {
+        let resolvedState = resolvedState(for: item)
+        if let firstAvailableFileURL = resolvedState.availableFileURLs.first {
+            return firstAvailableFileURL
+        }
+
+        guard resolvedState.isImageDataItem,
+              let imageData = clipboardImageData(for: item)
+        else {
+            return nil
+        }
+
+        if let storageKey = item.imageStorageKey, clipboardImageStore.fileExists(for: storageKey) {
+            return clipboardImageStore.fileURL(for: storageKey)
+        }
+
+        let exportDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(BuildInfo.appName, isDirectory: true)
+            .appendingPathComponent("ClipboardImageExports", isDirectory: true)
+        let exportURL = exportDirectoryURL
+            .appendingPathComponent(item.id.uuidString.lowercased(), isDirectory: false)
+            .appendingPathExtension("tiff")
+
+        do {
+            try FileManager.default.createDirectory(at: exportDirectoryURL, withIntermediateDirectories: true)
+            try imageData.write(to: exportURL, options: [.atomic])
+            return exportURL
+        } catch {
+            return nil
+        }
     }
 
     private func fileReferenceExists(_ fileReference: SecurityScopedResolvedFile) -> Bool {

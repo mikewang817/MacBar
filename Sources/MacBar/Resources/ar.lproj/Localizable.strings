@@ -13,6 +13,7 @@
 "ui.clipboard.item.characters" = "%d حرفًا";
 "ui.clipboard.item.words" = "%d كلمة";
 "ui.clipboard.button.copy" = "نسخ";
+"ui.clipboard.button.copyAsFile" = "نسخ كملف";
 "ui.clipboard.button.clearSearch" = "مسح البحث";
 "ui.clipboard.button.pauseMonitoring" = "مراقبة الإيقاف المؤقت";
 "ui.clipboard.button.resumeMonitoring" = "استئناف المراقبة";

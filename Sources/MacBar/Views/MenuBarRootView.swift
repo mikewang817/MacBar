@@ -22,6 +22,7 @@ struct MenuBarRootView: View {
     @State private var keyDownMonitor: Any?
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
+    @State private var selectedImageCopyMode: ClipboardImageCopyMode = .image
 
     private let mainWidth: CGFloat = 460
     private let previewWidth: CGFloat = 320
@@ -124,6 +125,11 @@ struct MenuBarRootView: View {
                 completedItemIDs.remove(itemID)
             }
         }
+    }
+
+    private enum ClipboardImageCopyMode {
+        case image
+        case file
     }
 
     var body: some View {
@@ -264,6 +270,7 @@ struct MenuBarRootView: View {
         let previewImage = store.clipboardPreviewImage(for: item)
         let isFileItem = store.clipboardIsFileItem(item)
         let isUnavailableFileItem = store.clipboardIsFileItemUnavailable(item)
+        let canCopyAsFile = store.clipboardCanCopyAsFile(item)
 
         return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
@@ -280,7 +287,8 @@ struct MenuBarRootView: View {
                             clipboardPreviewImageSection(
                                 item: item,
                                 image: previewImage,
-                                showsAirDropAction: false
+                                showsAirDropAction: false,
+                                showsCopyAsFileAction: false
                             )
 
                             if !fileURLs.isEmpty {
@@ -338,6 +346,17 @@ struct MenuBarRootView: View {
                                 .controlSize(.small)
                                 .disabled(availableFileURLs.isEmpty)
 
+                                if canCopyAsFile {
+                                    Button {
+                                        copyClipboardItemAsFileToPasteboard(item.id)
+                                    } label: {
+                                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
                                 airDropButton(for: item)
                             }
                         }
@@ -345,7 +364,8 @@ struct MenuBarRootView: View {
                         clipboardPreviewImageSection(
                             item: item,
                             image: previewImage,
-                            showsAirDropAction: true
+                            showsAirDropAction: true,
+                            showsCopyAsFileAction: canCopyAsFile
                         )
                     }
 
@@ -391,6 +411,11 @@ struct MenuBarRootView: View {
                             ? AnyShapeStyle(Color.secondary.opacity(0.55))
                             : AnyShapeStyle(Color.secondary)
                     )
+                if let selectedClipboardItem, supportsAlternateFileCopy(for: selectedClipboardItem) {
+                    Text("← \(store.localized("ui.clipboard.item.image")) · → \(store.localized("ui.clipboard.item.file"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(store.clipboardDeleteShortcutHint())
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -404,7 +429,8 @@ struct MenuBarRootView: View {
     private func clipboardPreviewImageSection(
         item: ClipboardItem,
         image: NSImage,
-        showsAirDropAction: Bool
+        showsAirDropAction: Bool,
+        showsCopyAsFileAction: Bool
     ) -> some View {
         Image(nsImage: image)
             .resizable()
@@ -421,6 +447,16 @@ struct MenuBarRootView: View {
                 Spacer()
                 if showsAirDropAction {
                     airDropButton(for: item)
+                }
+                if showsCopyAsFileAction {
+                    Button {
+                        copyClipboardItemAsFileToPasteboard(item.id)
+                    } label: {
+                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
                 }
                 Button {
                     copyTextToPasteboard(ocrText)
@@ -443,15 +479,39 @@ struct MenuBarRootView: View {
                 Text(store.localized("ui.ocr.processing"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if showsAirDropAction {
+                if showsAirDropAction || showsCopyAsFileAction {
                     Spacer()
+                }
+                if showsAirDropAction {
                     airDropButton(for: item)
                 }
+                if showsCopyAsFileAction {
+                    Button {
+                        copyClipboardItemAsFileToPasteboard(item.id)
+                    } label: {
+                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
             }
-        } else if showsAirDropAction {
+        } else if showsAirDropAction || showsCopyAsFileAction {
             HStack {
                 Spacer()
-                airDropButton(for: item)
+                if showsCopyAsFileAction {
+                    Button {
+                        copyClipboardItemAsFileToPasteboard(item.id)
+                    } label: {
+                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+                if showsAirDropAction {
+                    airDropButton(for: item)
+                }
             }
         }
     }
@@ -482,6 +542,8 @@ struct MenuBarRootView: View {
                     onFocus: { focusedField = true },
                     onMoveUp: { moveClipboardSelection(delta: -1) },
                     onMoveDown: { moveClipboardSelection(delta: 1) },
+                    onMoveLeft: { handleSelectedImageCopyModeChange(.image) },
+                    onMoveRight: { handleSelectedImageCopyModeChange(.file) },
                     onSubmit: { copySelectedClipboardItem() },
                     onCancel: { handleCancelAction() }
                 )
@@ -505,6 +567,16 @@ struct MenuBarRootView: View {
                         label: store.localized("ui.clipboard.status.resultsCount", clipboardNavigationItems.count),
                         tint: clipboardNavigationItems.isEmpty ? .secondary : .accentColor
                     )
+
+                    if let selectedClipboardItem, supportsAlternateFileCopy(for: selectedClipboardItem) {
+                        statusChip(
+                            systemImage: selectedImageCopyMode == .image ? "photo.fill" : "doc.fill",
+                            label: selectedImageCopyMode == .image
+                                ? store.localized("ui.clipboard.item.image")
+                                : store.localized("ui.clipboard.item.file"),
+                            tint: .secondary
+                        )
+                    }
 
                     Button(store.localized("ui.clipboard.button.clearSearch")) {
                         clearSearch()
@@ -893,7 +965,15 @@ struct MenuBarRootView: View {
         let isFileItem = store.clipboardIsFileItem(item)
         let isUnavailableFileItem = store.clipboardIsFileItemUnavailable(item)
         let hasPartiallyMissingFiles = isFileItem && !isUnavailableFileItem && !missingFileURLs.isEmpty
-        let canCopyItem = store.clipboardCanCopy(item)
+        let supportsAlternateCopyMode = supportsAlternateFileCopy(for: item)
+        let activeCopyMode = isSelected && supportsAlternateCopyMode ? selectedImageCopyMode : .image
+        let canCopyItem = activeCopyMode == .file
+            ? store.clipboardCanCopyAsFile(item)
+            : store.clipboardCanCopy(item)
+        let copyButtonSystemImage = activeCopyMode == .file ? "doc.badge.plus" : "doc.on.doc"
+        let copyButtonHelp = activeCopyMode == .file
+            ? store.localized("ui.clipboard.button.copyAsFile")
+            : store.localized("ui.clipboard.button.copy")
 
         return HStack(spacing: 10) {
             HStack(spacing: 10) {
@@ -963,6 +1043,10 @@ struct MenuBarRootView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+
+                if isSelected && supportsAlternateCopyMode {
+                    clipboardCopyModeBadge(activeCopyMode)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -972,7 +1056,7 @@ struct MenuBarRootView: View {
             }
             .onTapGesture(count: 2) {
                 isHoverSelectionSuspended = false
-                copyClipboardItemToPasteboard(item.id)
+                performPrimaryClipboardAction(for: item.id)
             }
 
             HStack(spacing: 6) {
@@ -991,14 +1075,14 @@ struct MenuBarRootView: View {
                 airDropButton(for: item, compact: true)
 
                 clipboardRowActionButton(
-                    systemImage: "doc.on.doc",
+                    systemImage: copyButtonSystemImage,
                     iconTint: canCopyItem ? .white : .secondary,
                     backgroundTint: canCopyItem ? .accentColor : nil,
                     isProminent: canCopyItem,
                     isEnabled: canCopyItem,
-                    help: store.localized("ui.clipboard.button.copy")
+                    help: copyButtonHelp
                 ) {
-                    copyClipboardItemToPasteboard(item.id)
+                    performPrimaryClipboardAction(for: item.id)
                 }
             }
         }
@@ -1126,6 +1210,10 @@ struct MenuBarRootView: View {
         case 126: // up
             moveClipboardSelection(delta: -1)
             return true
+        case 123: // left
+            return handleSelectedImageCopyModeChange(.image)
+        case 124: // right
+            return handleSelectedImageCopyModeChange(.file)
         case 36, 76: // return / keypad enter
             copySelectedClipboardItem()
             return true
@@ -1183,7 +1271,7 @@ struct MenuBarRootView: View {
         guard store.clipboardCanCopy(selected) else {
             return
         }
-        copyClipboardItemToPasteboard(selected.id)
+        performPrimaryClipboardAction(for: selected.id)
     }
 
     private func deleteSelectedClipboardItem() {
@@ -1227,6 +1315,7 @@ struct MenuBarRootView: View {
         guard !items.isEmpty else {
             cancelHoverSelection()
             selectedClipboardItemID = nil
+            selectedImageCopyMode = .image
             return
         }
 
@@ -1241,6 +1330,7 @@ struct MenuBarRootView: View {
         }
 
         selectedClipboardItemID = items[0].id
+        selectedImageCopyMode = .image
     }
 
     private func handleClipboardRowHover(isHovering: Bool, itemID: UUID) {
@@ -1318,6 +1408,7 @@ struct MenuBarRootView: View {
         }
 
         selectedClipboardItemID = itemID
+        selectedImageCopyMode = .image
     }
 
     private func scheduleHoverSelectionExit(for itemID: UUID) {
@@ -1952,10 +2043,90 @@ struct MenuBarRootView: View {
         }
     }
 
+    private func performPrimaryClipboardAction(for itemID: UUID) {
+        guard let item = store.clipboardHistory.first(where: { $0.id == itemID }) else {
+            return
+        }
+
+        if activePrimaryCopyMode(for: item) == .file {
+            copyClipboardItemAsFileToPasteboard(itemID)
+        } else {
+            copyClipboardItemToPasteboard(itemID)
+        }
+    }
+
+    private func supportsAlternateFileCopy(for item: ClipboardItem) -> Bool {
+        store.clipboardPreviewImage(for: item) != nil && store.clipboardCanCopyAsFile(item)
+    }
+
+    private func activePrimaryCopyMode(for item: ClipboardItem) -> ClipboardImageCopyMode {
+        if supportsAlternateFileCopy(for: item), selectedClipboardItemID == item.id {
+            return selectedImageCopyMode
+        }
+        return .image
+    }
+
+    @discardableResult
+    private func handleSelectedImageCopyModeChange(_ mode: ClipboardImageCopyMode) -> Bool {
+        guard let selectedClipboardItem,
+              supportsAlternateFileCopy(for: selectedClipboardItem)
+        else {
+            return false
+        }
+
+        selectedImageCopyMode = mode
+        return true
+    }
+
+    private func clipboardCopyModeBadge(_ mode: ClipboardImageCopyMode) -> some View {
+        let systemImage = mode == .image ? "photo.fill" : "doc.fill"
+        let label = mode == .image
+            ? store.localized("ui.clipboard.item.image")
+            : store.localized("ui.clipboard.item.file")
+
+        return Label(label, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(.quaternary.opacity(0.4))
+            )
+    }
+
     private func copyTextToPasteboard(_ text: String) {
         let feedback = store.copyTextToClipboard(text)
         if onRequestClose != nil && store.closesPanelAfterCopy {
             requestClosePanel(restorePreviousApp: store.restoresPreviousAppAfterCopy)
+        } else {
+            presentFeedback(feedback)
+        }
+    }
+
+    private func copyClipboardItemAsFileToPasteboard(_ itemID: UUID) {
+        commitClipboardSelection(itemID, clearsHoverState: false)
+        guard let item = store.clipboardHistory.first(where: { $0.id == itemID }) else {
+            return
+        }
+        if store.clipboardIsFileItem(item) {
+            store.refreshClipboardFileAvailability(force: true)
+        }
+        guard store.clipboardCanCopyAsFile(item) else {
+            return
+        }
+
+        let shouldClosePanel = onRequestClose != nil && store.closesPanelAfterCopy
+        let feedback = store.copyClipboardItemAsFile(
+            itemID,
+            persistHistoryImmediately: !shouldClosePanel
+        )
+
+        if shouldClosePanel {
+            requestClosePanel(restorePreviousApp: store.restoresPreviousAppAfterCopy)
+            Task { @MainActor in
+                store.scheduleClipboardPersistence()
+            }
         } else {
             presentFeedback(feedback)
         }
@@ -2226,6 +2397,8 @@ private struct CommandAwareSearchField: NSViewRepresentable {
     let onFocus: () -> Void
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
+    let onMoveLeft: () -> Bool
+    let onMoveRight: () -> Bool
     let onSubmit: () -> Void
     let onCancel: () -> Void
 
@@ -2258,6 +2431,10 @@ private struct CommandAwareSearchField: NSViewRepresentable {
             case #selector(NSResponder.moveDown(_:)):
                 parent.onMoveDown()
                 return true
+            case #selector(NSResponder.moveLeft(_:)):
+                return parent.onMoveLeft()
+            case #selector(NSResponder.moveRight(_:)):
+                return parent.onMoveRight()
             case #selector(NSResponder.insertNewline(_:)):
                 parent.onSubmit()
                 return true

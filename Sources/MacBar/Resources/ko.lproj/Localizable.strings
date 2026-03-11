@@ -13,6 +13,7 @@
 "ui.clipboard.item.characters" = "%d자";
 "ui.clipboard.item.words" = "%d단어";
 "ui.clipboard.button.copy" = "복사";
+"ui.clipboard.button.copyAsFile" = "파일로 복사";
 "ui.clipboard.button.clearSearch" = "검색 지우기";
 "ui.clipboard.button.pauseMonitoring" = "모니터링 일시중지";
 "ui.clipboard.button.resumeMonitoring" = "모니터링 재개";

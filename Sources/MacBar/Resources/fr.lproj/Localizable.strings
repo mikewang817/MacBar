@@ -13,6 +13,7 @@
 "ui.clipboard.item.characters" = "%d caractères";
 "ui.clipboard.item.words" = "%d mots";
 "ui.clipboard.button.copy" = "Copier";
+"ui.clipboard.button.copyAsFile" = "Copier comme fichier";
 "ui.clipboard.button.clearSearch" = "Effacer la recherche";
 "ui.clipboard.button.pauseMonitoring" = "Suspendre la surveillance";
 "ui.clipboard.button.resumeMonitoring" = "Reprendre la surveillance";

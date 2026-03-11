@@ -13,6 +13,7 @@
 "ui.clipboard.item.characters" = "%d 文字";
 "ui.clipboard.item.words" = "%d 語";
 "ui.clipboard.button.copy" = "コピー";
+"ui.clipboard.button.copyAsFile" = "ファイルとしてコピー";
 "ui.clipboard.button.clearSearch" = "検索をクリア";
 "ui.clipboard.button.pauseMonitoring" = "監視を一時停止します";
 "ui.clipboard.button.resumeMonitoring" = "監視を再開";

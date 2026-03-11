@@ -59,6 +59,10 @@ final class ClipboardImageStore {
         fileManager.fileExists(atPath: imageURL(for: storageKey).path)
     }
 
+    func fileURL(for storageKey: String) -> URL {
+        imageURL(for: storageKey)
+    }
+
     func fileSize(for storageKey: String) -> Int64 {
         let imagePath = imageURL(for: storageKey).path
         guard
