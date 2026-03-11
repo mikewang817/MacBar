@@ -559,12 +559,17 @@ struct MenuBarRootView: View {
         clipboardNavigationItems.map(\.id)
     }
 
+    private var clipboardListIdentity: String {
+        let itemIDs = clipboardNavigationIDs.map(\.uuidString).joined(separator: ",")
+        return "\(store.clipboardSearchText)|\(itemIDs)"
+    }
+
     @ViewBuilder
     private var clipboardPanelBody: some View {
         let pinned = store.pinnedClipboardItems
         let recent = store.recentClipboardItems
 
-        LazyVStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 14) {
             if pinned.isEmpty, recent.isEmpty {
                 if store.isClipboardSearching {
                     clipboardSearchEmptyState
@@ -587,6 +592,7 @@ struct MenuBarRootView: View {
                 }
             }
         }
+        .id(clipboardListIdentity)
     }
 
     private var clipboardEmptyState: some View {
@@ -890,71 +896,83 @@ struct MenuBarRootView: View {
         let canCopyItem = store.clipboardCanCopy(item)
 
         return HStack(spacing: 10) {
-            Group {
-                if isFileItem {
-                    Image(systemName: "doc.fill")
-                        .frame(width: 22)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(isUnavailableFileItem ? .secondary : .primary)
-                } else if let image = store.clipboardImage(for: item) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 22, height: 22)
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                } else {
-                    Image(systemName: "doc.on.clipboard")
-                        .frame(width: 22)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                if isFileItem, let fileURL = fileURLs.first {
-                    HStack(spacing: 6) {
-                        Text(fileTitle(firstFileURL: fileURL, fileCount: fileURLs.count))
-                            .font(.subheadline.weight(.semibold))
+            HStack(spacing: 10) {
+                Group {
+                    if isFileItem {
+                        Image(systemName: "doc.fill")
+                            .frame(width: 22)
+                            .font(.body.weight(.medium))
                             .foregroundStyle(isUnavailableFileItem ? .secondary : .primary)
+                    } else if let image = store.clipboardImage(for: item) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    } else {
+                        Image(systemName: "doc.on.clipboard")
+                            .frame(width: 22)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.primary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    if isFileItem, let fileURL = fileURLs.first {
+                        HStack(spacing: 6) {
+                            Text(fileTitle(firstFileURL: fileURL, fileCount: fileURLs.count))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(isUnavailableFileItem ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            if isUnavailableFileItem {
+                                fileStatusBadge(store.localized("ui.clipboard.item.unavailable"), tint: .secondary)
+                            } else if hasPartiallyMissingFiles {
+                                fileStatusBadge(store.localized("ui.clipboard.item.partiallyUnavailable"), tint: .secondary)
+                            }
+                        }
+
+                        Text(
+                            isUnavailableFileItem
+                                ? store.localized("ui.clipboard.preview.fileUnavailableInline")
+                                : fileURL.deletingLastPathComponent().path
+                        )
+                        .font(.caption)
+                        .foregroundStyle(isUnavailableFileItem ? .tertiary : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    } else {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        if isUnavailableFileItem {
-                            fileStatusBadge(store.localized("ui.clipboard.item.unavailable"), tint: .secondary)
-                        } else if hasPartiallyMissingFiles {
-                            fileStatusBadge(store.localized("ui.clipboard.item.partiallyUnavailable"), tint: .secondary)
-                        }
+                        Text(textRowSubtitle(for: item))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
+                }
 
-                    Text(
-                        isUnavailableFileItem
-                            ? store.localized("ui.clipboard.preview.fileUnavailableInline")
-                            : fileURL.deletingLastPathComponent().path
-                    )
-                    .font(.caption)
-                    .foregroundStyle(isUnavailableFileItem ? .tertiary : .secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                } else {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                Spacer(minLength: 8)
 
-                    Text(textRowSubtitle(for: item))
-                        .font(.caption)
+                if let shortcutLabel {
+                    Text(shortcutLabel)
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
             }
-
-            Spacer(minLength: 8)
-
-            if let shortcutLabel {
-                Text(shortcutLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isHoverSelectionSuspended = false
+                commitClipboardSelection(item.id, clearsHoverState: false)
+            }
+            .onTapGesture(count: 2) {
+                isHoverSelectionSuspended = false
+                copyClipboardItemToPasteboard(item.id)
             }
 
             HStack(spacing: 6) {
@@ -998,26 +1016,9 @@ struct MenuBarRootView: View {
                 .stroke(isSelected ? Color.accentColor.opacity(0.95) : .clear, lineWidth: 1.2)
         )
         .opacity(isUnavailableFileItem ? 0.6 : 1)
-        .contentShape(Rectangle())
         .onHover { isHovering in
             handleClipboardRowHover(isHovering: isHovering, itemID: item.id)
         }
-        .gesture(
-            ExclusiveGesture(
-                TapGesture(count: 2),
-                TapGesture()
-            )
-            .onEnded { value in
-                isHoverSelectionSuspended = false
-
-                switch value {
-                case .first(_):
-                    copyClipboardItemToPasteboard(item.id)
-                case .second(_):
-                    commitClipboardSelection(item.id, clearsHoverState: false)
-                }
-            }
-        )
         .help(isFileItem ? store.clipboardFileHelpText(for: item) : "")
     }
 
@@ -2014,34 +2015,27 @@ struct MenuBarRootView: View {
         return store.clipboardImageData(for: item) != nil
     }
 
-    private func canAirDropClipboardItem(_ item: ClipboardItem) -> Bool {
-        if store.clipboardIsFileItem(item) {
-            return store.withClipboardFileAccess(for: item) { urls in
-                airDropService.canSendFiles(urls)
-            } ?? false
-        }
-
-        guard let image = store.clipboardImage(for: item) else {
-            return false
-        }
-
-        return airDropService.canSendImage(image)
-    }
-
     private func airDropClipboardItem(_ item: ClipboardItem) {
+        let didStartAirDrop: Bool
+
         if store.clipboardIsFileItem(item) {
             store.refreshClipboardFileAvailability(force: true)
-            _ = store.withClipboardFileAccess(for: item) { urls in
+            didStartAirDrop = store.withClipboardFileAccess(for: item) { urls in
                 airDropService.sendFiles(urls)
-            }
+            } ?? false
+        } else if let image = store.clipboardImage(for: item) {
+            didStartAirDrop = airDropService.sendImage(image)
+        } else {
+            didStartAirDrop = false
+        }
+
+        guard didStartAirDrop else {
             return
         }
 
-        guard let image = store.clipboardImage(for: item) else {
-            return
+        if onRequestClose != nil {
+            requestClosePanel(restorePreviousApp: false)
         }
-
-        _ = airDropService.sendImage(image)
     }
 
     @ViewBuilder
@@ -2065,6 +2059,8 @@ struct MenuBarRootView: View {
             .disabled(!canAirDrop)
             .help(title)
         } else {
+            let canAirDrop = supportsAirDrop(for: item)
+
             Button {
                 airDropClipboardItem(item)
             } label: {
@@ -2073,7 +2069,7 @@ struct MenuBarRootView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(!canAirDropClipboardItem(item))
+            .disabled(!canAirDrop)
             .help(title)
         }
     }
