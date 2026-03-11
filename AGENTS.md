@@ -153,6 +153,20 @@ npx --yes wrangler pages deploy website
 - 若仓库里已有 `fastlane/`、`Fastfile`、`Appfile`、`Matchfile` 或相关 lane，优先在现有配置上扩展。
 - 若用户要求“搞定上架”“管理证书”“自动化发布”，优先补 fastlane lane，而不是继续堆一次性 shell 脚本。
 - 证书、profile、上传、提审相关能力应尽量沉淀进 fastlane，保证后续可重复执行。
+- 常规 App Store 发布步骤默认按以下顺序执行：
+
+```bash
+bundle exec fastlane mac bump_version version:X.Y.Z
+bundle exec fastlane mac sync_signing
+bundle exec fastlane mac build_app_store
+bundle exec fastlane mac upload_app_store
+```
+
+- 若用户明确要求一条命令串起上述流程，可使用：
+
+```bash
+bundle exec fastlane mac release_app_store
+```
 
 每次发布新版本按以下步骤执行：
 
