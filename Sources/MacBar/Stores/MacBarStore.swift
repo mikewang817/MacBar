@@ -48,6 +48,7 @@ final class MacBarStore: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var pendingPersistenceTask: Task<Void, Never>?
     private var panelOpenCountSinceLastUpdateCheck: Int
+    private var pinnedShortcutKeyByItemID: [UUID: String]
     private var imageDataCache: [String: Data] = [:]
     private var imagePreviewCache: [String: NSImage] = [:]
     private var fileImageDataCache: [String: Data] = [:]
@@ -69,12 +70,14 @@ final class MacBarStore: ObservableObject {
         static let appSettingsData = "macbar.appSettingsData"
         static let clipboardHistoryData = "macbar.clipboardHistoryData"
         static let pinnedClipboardIDs = "macbar.pinnedClipboardIDs"
+        static let pinnedClipboardShortcutKeys = "macbar.pinnedClipboardShortcutKeys"
         static let clipboardMonitoringEnabled = "macbar.clipboardMonitoringEnabled"
         static let updateCheckPanelOpenCount = "macbar.updateCheckPanelOpenCount"
     }
 
     private static let updateCheckPanelOpenThreshold = 20
     private static let fileAvailabilityRefreshInterval: TimeInterval = 1.0
+    private static let pinnedShortcutKeys: [String] = Array("BCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
 
     private struct ClipboardItemResolvedState: Equatable {
         let fileReferences: [SecurityScopedResolvedFile]
@@ -175,6 +178,7 @@ final class MacBarStore: ObservableObject {
         self.settings = Self.loadAppSettings(defaults: defaults)
         self.clipboardHistory = Self.loadClipboardHistory(defaults: defaults)
         self.pinnedClipboardItemIDs = Self.loadPinnedClipboardIDs(defaults: defaults)
+        self.pinnedShortcutKeyByItemID = Self.loadPinnedClipboardShortcutKeys(defaults: defaults)
         self.isClipboardMonitoringEnabled = defaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool ?? true
         self.panelOpenCountSinceLastUpdateCheck = defaults.integer(forKey: Keys.updateCheckPanelOpenCount)
 
@@ -332,6 +336,26 @@ final class MacBarStore: ObservableObject {
         }
     }
 
+    func pinnedClipboardShortcutLabel(for itemID: UUID) -> String? {
+        guard let shortcutKey = pinnedShortcutKeyByItemID[itemID] else {
+            return nil
+        }
+
+        return "⌘\(shortcutKey)"
+    }
+
+    func pinnedClipboardItem(forShortcutKey shortcutKey: Character) -> ClipboardItem? {
+        let normalizedShortcutKey = String(shortcutKey).uppercased()
+
+        guard Self.pinnedShortcutKeys.contains(normalizedShortcutKey),
+              let itemID = pinnedShortcutKeyByItemID.first(where: { $0.value == normalizedShortcutKey })?.key
+        else {
+            return nil
+        }
+
+        return pinnedClipboardItems.first(where: { $0.id == itemID })
+    }
+
     func registerPanelOpenForUpdateCheck() async {
         guard BuildInfo.supportsExternalUpdates, automaticallyChecksForUpdates else {
             return
@@ -354,8 +378,10 @@ final class MacBarStore: ObservableObject {
     func toggleClipboardItemPinned(_ itemID: UUID) {
         if pinnedClipboardItemIDs.contains(itemID) {
             pinnedClipboardItemIDs.remove(itemID)
+            pinnedShortcutKeyByItemID.removeValue(forKey: itemID)
         } else {
             pinnedClipboardItemIDs.insert(itemID)
+            assignPinnedShortcutIfNeeded(for: itemID)
         }
 
         normalizeClipboardState()
@@ -433,7 +459,8 @@ final class MacBarStore: ObservableObject {
         pendingPersistenceTask = nil
         persistClipboardState(
             history: clipboardHistory,
-            pinnedIDs: serializedPinnedClipboardIDs()
+            pinnedIDs: serializedPinnedClipboardIDs(),
+            pinnedShortcutKeys: serializedPinnedClipboardShortcutKeys()
         )
     }
 
@@ -441,6 +468,7 @@ final class MacBarStore: ObservableObject {
         let removedItems = clipboardHistory.filter { $0.id == itemID }
         clipboardHistory.removeAll { $0.id == itemID }
         pinnedClipboardItemIDs.remove(itemID)
+        pinnedShortcutKeyByItemID.removeValue(forKey: itemID)
         clipboardOCRCache.removeValue(forKey: itemID)
         removeStoredImages(for: removedItems)
         schedulePersistence()
@@ -473,6 +501,7 @@ final class MacBarStore: ObservableObject {
         let removedItems = clipboardHistory
         clipboardHistory.removeAll()
         pinnedClipboardItemIDs.removeAll()
+        pinnedShortcutKeyByItemID.removeAll()
         clipboardOCRCache.removeAll()
         removeStoredImages(for: removedItems)
         schedulePersistence()
@@ -839,6 +868,9 @@ final class MacBarStore: ObservableObject {
     private func normalizeClipboardState() {
         let existingIDs = Set(clipboardHistory.map(\.id))
         pinnedClipboardItemIDs = pinnedClipboardItemIDs.intersection(existingIDs)
+        pinnedShortcutKeyByItemID = pinnedShortcutKeyByItemID.filter { itemID, shortcutKey in
+            existingIDs.contains(itemID) && pinnedClipboardItemIDs.contains(itemID) && Self.pinnedShortcutKeys.contains(shortcutKey)
+        }
 
         var normalized: [ClipboardItem] = []
         var seenIDs: Set<UUID> = []
@@ -852,6 +884,7 @@ final class MacBarStore: ObservableObject {
         }
 
         clipboardHistory = normalized
+        reconcilePinnedShortcutAssignments()
     }
 
     private func schedulePersistence() {
@@ -859,6 +892,7 @@ final class MacBarStore: ObservableObject {
 
         let historySnapshot = clipboardHistory
         let pinnedSnapshot = serializedPinnedClipboardIDs()
+        let pinnedShortcutSnapshot = serializedPinnedClipboardShortcutKeys()
 
         pendingPersistenceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(180))
@@ -868,7 +902,8 @@ final class MacBarStore: ObservableObject {
 
             self.persistClipboardState(
                 history: historySnapshot,
-                pinnedIDs: pinnedSnapshot
+                pinnedIDs: pinnedSnapshot,
+                pinnedShortcutKeys: pinnedShortcutSnapshot
             )
             self.pendingPersistenceTask = nil
         }
@@ -909,15 +944,23 @@ final class MacBarStore: ObservableObject {
         Array(pinnedClipboardItemIDs).map(\.uuidString).sorted()
     }
 
+    private func serializedPinnedClipboardShortcutKeys() -> [String: String] {
+        pinnedShortcutKeyByItemID.reduce(into: [:]) { result, entry in
+            result[entry.key.uuidString] = entry.value
+        }
+    }
+
     private func persistClipboardState(
         history: [ClipboardItem],
-        pinnedIDs: [String]
+        pinnedIDs: [String],
+        pinnedShortcutKeys: [String: String]
     ) {
         let encoder = JSONEncoder()
         if let data = try? encoder.encode(history) {
             defaults.set(data, forKey: Keys.clipboardHistoryData)
         }
         defaults.set(pinnedIDs, forKey: Keys.pinnedClipboardIDs)
+        defaults.set(pinnedShortcutKeys, forKey: Keys.pinnedClipboardShortcutKeys)
     }
 
     private func enforceRetentionPolicies(persistChanges: Bool) {
@@ -939,9 +982,53 @@ final class MacBarStore: ObservableObject {
             pendingPersistenceTask = nil
             persistClipboardState(
                 history: clipboardHistory,
-                pinnedIDs: serializedPinnedClipboardIDs()
+                pinnedIDs: serializedPinnedClipboardIDs(),
+                pinnedShortcutKeys: serializedPinnedClipboardShortcutKeys()
             )
         }
+    }
+
+    private func assignPinnedShortcutIfNeeded(for itemID: UUID) {
+        guard pinnedShortcutKeyByItemID[itemID] == nil else {
+            return
+        }
+
+        let usedShortcutKeys = Set(pinnedShortcutKeyByItemID.values)
+        guard let nextShortcutKey = Self.pinnedShortcutKeys.first(where: { !usedShortcutKeys.contains($0) }) else {
+            return
+        }
+
+        pinnedShortcutKeyByItemID[itemID] = nextShortcutKey
+    }
+
+    private func reconcilePinnedShortcutAssignments() {
+        var normalizedAssignments: [UUID: String] = [:]
+        var usedShortcutKeys: Set<String> = []
+
+        for item in clipboardHistory where pinnedClipboardItemIDs.contains(item.id) {
+            guard let shortcutKey = pinnedShortcutKeyByItemID[item.id],
+                  Self.pinnedShortcutKeys.contains(shortcutKey),
+                  !usedShortcutKeys.contains(shortcutKey)
+            else {
+                continue
+            }
+
+            normalizedAssignments[item.id] = shortcutKey
+            usedShortcutKeys.insert(shortcutKey)
+        }
+
+        for item in clipboardHistory where pinnedClipboardItemIDs.contains(item.id) {
+            guard normalizedAssignments[item.id] == nil,
+                  let nextShortcutKey = Self.pinnedShortcutKeys.first(where: { !usedShortcutKeys.contains($0) })
+            else {
+                continue
+            }
+
+            normalizedAssignments[item.id] = nextShortcutKey
+            usedShortcutKeys.insert(nextShortcutKey)
+        }
+
+        pinnedShortcutKeyByItemID = normalizedAssignments
     }
 
     private func trimHistoryToMaximumItemLimit() -> [ClipboardItem] {
@@ -1081,7 +1168,8 @@ final class MacBarStore: ObservableObject {
         clipboardHistory = migratedHistory
         persistClipboardState(
             history: migratedHistory,
-            pinnedIDs: serializedPinnedClipboardIDs()
+            pinnedIDs: serializedPinnedClipboardIDs(),
+            pinnedShortcutKeys: serializedPinnedClipboardShortcutKeys()
         )
     }
 
@@ -1124,7 +1212,8 @@ final class MacBarStore: ObservableObject {
         clipboardHistory = migratedHistory
         persistClipboardState(
             history: migratedHistory,
-            pinnedIDs: serializedPinnedClipboardIDs()
+            pinnedIDs: serializedPinnedClipboardIDs(),
+            pinnedShortcutKeys: serializedPinnedClipboardShortcutKeys()
         )
     }
 
@@ -1163,6 +1252,30 @@ final class MacBarStore: ObservableObject {
         return Set(rawIDs.compactMap(UUID.init(uuidString:)))
     }
 
+    private static func loadPinnedClipboardShortcutKeys(defaults: UserDefaults) -> [UUID: String] {
+        guard let rawAssignments = defaults.dictionary(forKey: Keys.pinnedClipboardShortcutKeys) as? [String: String] else {
+            return [:]
+        }
+
+        var assignments: [UUID: String] = [:]
+        var usedShortcutKeys: Set<String> = []
+
+        for (rawItemID, rawShortcutKey) in rawAssignments {
+            let normalizedShortcutKey = rawShortcutKey.uppercased()
+            guard let itemID = UUID(uuidString: rawItemID),
+                  pinnedShortcutKeys.contains(normalizedShortcutKey),
+                  !usedShortcutKeys.contains(normalizedShortcutKey)
+            else {
+                continue
+            }
+
+            assignments[itemID] = normalizedShortcutKey
+            usedShortcutKeys.insert(normalizedShortcutKey)
+        }
+
+        return assignments
+    }
+
     private static func loadAppSettings(defaults: UserDefaults) -> AppSettings {
         guard let data = defaults.data(forKey: Keys.appSettingsData) else {
             return AppSettings()
@@ -1199,6 +1312,11 @@ final class MacBarStore: ObservableObject {
             }
 
             if needsClipboardState,
+               let pinnedShortcutKeys = legacyDefaults.dictionary(forKey: Keys.pinnedClipboardShortcutKeys) as? [String: String] {
+                sharedDefaults.set(pinnedShortcutKeys, forKey: Keys.pinnedClipboardShortcutKeys)
+            }
+
+            if needsClipboardState,
                let monitoringEnabled = legacyDefaults.object(forKey: Keys.clipboardMonitoringEnabled) as? Bool {
                 sharedDefaults.set(monitoringEnabled, forKey: Keys.clipboardMonitoringEnabled)
             }
@@ -1218,6 +1336,10 @@ final class MacBarStore: ObservableObject {
         }
 
         if defaults.object(forKey: Keys.pinnedClipboardIDs) != nil {
+            return true
+        }
+
+        if defaults.object(forKey: Keys.pinnedClipboardShortcutKeys) != nil {
             return true
         }
 

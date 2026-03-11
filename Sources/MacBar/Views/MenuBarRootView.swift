@@ -853,17 +853,13 @@ struct MenuBarRootView: View {
         }
     }
 
-    private static let pinnedShortcutLetters: [Character] = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
     private func clipboardPinnedSection(title: String, items: [ClipboardItem]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.headline)
 
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                let shortcutLabel = index < Self.pinnedShortcutLetters.count
-                    ? "⌘\(Self.pinnedShortcutLetters[index])"
-                    : nil
+            ForEach(items, id: \.id) { item in
+                let shortcutLabel = store.pinnedClipboardShortcutLabel(for: item.id)
                 clipboardRow(item, shortcutLabel: shortcutLabel, isSelected: highlightedClipboardItemID == item.id)
                     .id(item.id)
             }
@@ -1006,10 +1002,22 @@ struct MenuBarRootView: View {
         .onHover { isHovering in
             handleClipboardRowHover(isHovering: isHovering, itemID: item.id)
         }
-        .onTapGesture {
-            isHoverSelectionSuspended = false
-            commitClipboardSelection(item.id, clearsHoverState: false)
-        }
+        .gesture(
+            ExclusiveGesture(
+                TapGesture(count: 2),
+                TapGesture()
+            )
+            .onEnded { value in
+                isHoverSelectionSuspended = false
+
+                switch value {
+                case .first(_):
+                    copyClipboardItemToPasteboard(item.id)
+                case .second(_):
+                    commitClipboardSelection(item.id, clearsHoverState: false)
+                }
+            }
+        )
         .help(isFileItem ? store.clipboardFileHelpText(for: item) : "")
     }
 
@@ -1072,7 +1080,7 @@ struct MenuBarRootView: View {
             return true
         }
 
-        // CMD+1-9 / CMD+A-Z: always handle regardless of search field focus.
+        // CMD+1-9 / pinned CMD shortcuts: always handle regardless of search field focus.
         // The search field is auto-focused whenever the panel is open, so these shortcuts
         // must be checked before isAnyTextInputEditing() or they are never reached.
         if flags == [.command],
@@ -1083,11 +1091,15 @@ struct MenuBarRootView: View {
                 copyRecentClipboardItemByIndex(digit - 1)
                 return true
             }
-            // CMD+A-Z: copy nth pinned item
-            if let letterIndex = Self.pinnedShortcutLetters.firstIndex(
-                of: Character(first.uppercased())
-            ) {
-                copyPinnedClipboardItemByIndex(letterIndex)
+            // Pinned shortcuts are assigned per item and intentionally never use CMD+A.
+            if let pinnedItem = store.pinnedClipboardItem(forShortcutKey: first) {
+                if store.clipboardIsFileItem(pinnedItem) {
+                    store.refreshClipboardFileAvailability(force: true)
+                }
+                guard store.clipboardCanCopy(pinnedItem) else {
+                    return true
+                }
+                copyClipboardItemToPasteboard(pinnedItem.id)
                 return true
             }
         }
@@ -1192,21 +1204,6 @@ struct MenuBarRootView: View {
             let nextIndex = min(currentIndex, updatedItems.count - 1)
             commitClipboardSelection(updatedItems[nextIndex].id, clearsHoverState: true)
         }
-    }
-
-    private func copyPinnedClipboardItemByIndex(_ index: Int) {
-        let items = store.pinnedClipboardItems
-        guard index >= 0, index < items.count else {
-            return
-        }
-
-        if store.clipboardIsFileItem(items[index]) {
-            store.refreshClipboardFileAvailability(force: true)
-        }
-        guard store.clipboardCanCopy(items[index]) else {
-            return
-        }
-        copyClipboardItemToPasteboard(items[index].id)
     }
 
     private func copyRecentClipboardItemByIndex(_ index: Int) {
