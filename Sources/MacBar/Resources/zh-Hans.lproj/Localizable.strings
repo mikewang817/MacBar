@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "剪贴板历史为空";
 "ui.clipboard.empty.hint.monitoringOn" = "复制文本、图片或 Finder 文件后，MacBar 会自动记录。";
 "ui.clipboard.empty.hint.monitoringOff" = "监听已暂停，恢复后才会记录新的剪贴板内容。";
+"ui.clipboard.empty.tutorial.title" = "这样开始使用";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar 已准备就绪。你第一次复制的内容会自动出现在这里。";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "剪贴板监听已暂停。先恢复监听，之后复制的内容才会出现在这里。";
+"ui.clipboard.empty.tutorial.step1.title" = "先复制文本、图片或 Finder 文件";
+"ui.clipboard.empty.tutorial.step1.body" = "只要监听开启，MacBar 就会自动记录新的剪贴板内容。";
+"ui.clipboard.empty.tutorial.step2.title" = "按回车或双击即可再次复制";
+"ui.clipboard.empty.tutorial.step2.body" = "在列表中选中任意条目，就能快速把它再次放回剪贴板。";
+"ui.clipboard.empty.tutorial.step3.title" = "图片可用左右箭头切换复制模式";
+"ui.clipboard.empty.tutorial.step3.body" = "要粘贴到 Word 等应用中请选择“图片”，要粘贴到 Finder 或文件夹中请选择“文件”。";
 "ui.clipboard.empty.search.title" = "没有匹配当前搜索的剪贴板条目";
 "ui.clipboard.empty.search.hint" = "可以换个关键词，或清除搜索后查看完整历史。";
 "ui.clipboard.item.empty" = "（空文本）";
@@ -42,7 +51,6 @@
 "ui.settings.title" = "设置";
 "ui.settings.subtitle" = "调整 MacBar 的复制行为、历史保留和 OCR / 更新策略。";
 "ui.settings.button.open" = "设置";
-"ui.settings.button.back" = "返回";
 "ui.settings.button.checkUpdates" = "立即检查";
 "ui.settings.button.installUpdate" = "安装更新";
 "ui.settings.section.behavior" = "行为";
@@ -81,6 +89,7 @@
 "ui.update.installing" = "安装中...";
 "ui.menu.actions" = "操作";
 "ui.button.quit" = "退出 MacBar";
+"ui.button.gotIt" = "知道了";
 "ui.button.cancel" = "取消";
 "ui.language.menu" = "语言";
 "ui.language.system" = "系统";
@@ -91,6 +100,8 @@
 "feedback.clipboard.clearedAll" = "已清空所有剪贴板条目";
 "feedback.clipboard.monitoringPaused" = "剪贴板监听已暂停";
 "feedback.clipboard.monitoringResumed" = "剪贴板监听已恢复";
+"ui.clipboard.tip.imageCopyMode.title" = "图片复制模式";
+"ui.clipboard.tip.imageCopyMode.message" = "你可以用左右箭头切换图片复制模式。要粘贴到 Finder 或文件夹时请选择“文件”，要粘贴到 Word 等应用中时请选择“图片”。";
 "feedback.update.title" = "更新";
 "feedback.update.checking" = "检查中...";
 "feedback.update.available" = "发现可用版本 %@";

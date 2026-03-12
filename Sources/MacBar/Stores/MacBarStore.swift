@@ -15,7 +15,6 @@ enum ClipboardResolvedOCRSource: Equatable {
 
 @MainActor
 final class MacBarStore: ObservableObject {
-    @Published var activePanel: AppPanel = .clipboard
     @Published private(set) var settings: AppSettings
     @Published var clipboardSearchText: String = "" {
         didSet { rebuildDerivedClipboardCollections() }
@@ -251,6 +250,10 @@ final class MacBarStore: ObservableObject {
         settings.automaticallyChecksForUpdates
     }
 
+    var hasSeenImageCopyModeTip: Bool {
+        settings.hasSeenImageCopyModeTip
+    }
+
     func localized(_ key: String) -> String {
         localizationManager.localized(key)
     }
@@ -311,6 +314,16 @@ final class MacBarStore: ObservableObject {
 
         if !isEnabled {
             resetUpdateCheckPanelOpenCount()
+        }
+    }
+
+    func markImageCopyModeTipAsSeen() {
+        guard !settings.hasSeenImageCopyModeTip else {
+            return
+        }
+
+        updateSettings {
+            $0.hasSeenImageCopyModeTip = true
         }
     }
 
@@ -705,7 +718,7 @@ final class MacBarStore: ObservableObject {
         let resolvedState = resolvedState(for: item)
 
         if resolvedState.hasPreviewImage {
-            return clipboardImageTIFFDataForCopy(for: item) != nil
+            return true
         }
 
         return resolvedState.canCopy
@@ -718,7 +731,7 @@ final class MacBarStore: ObservableObject {
             return true
         }
 
-        return imageFileExportURL(for: item) != nil
+        return resolvedState.isImageDataItem && resolvedState.hasStoredImageData
     }
 
     func withClipboardFileAccess<Result>(
@@ -1506,8 +1519,31 @@ final class MacBarStore: ObservableObject {
             }
         }
 
-        pinnedClipboardItemsCache = filteredClipboardItemsCache.filter { pinnedClipboardItemIDs.contains($0.id) }
+        pinnedClipboardItemsCache = filteredClipboardItemsCache
+            .filter { pinnedClipboardItemIDs.contains($0.id) }
+            .sorted(by: pinnedDisplayOrderComparator)
         recentClipboardItemsCache = filteredClipboardItemsCache.filter { !pinnedClipboardItemIDs.contains($0.id) }
+    }
+
+    private func pinnedDisplayOrderComparator(_ lhs: ClipboardItem, _ rhs: ClipboardItem) -> Bool {
+        let lhsShortcut = pinnedShortcutKeyByItemID[lhs.id]
+        let rhsShortcut = pinnedShortcutKeyByItemID[rhs.id]
+
+        switch (lhsShortcut, rhsShortcut) {
+        case let (lhsShortcut?, rhsShortcut?):
+            guard let lhsIndex = Self.pinnedShortcutKeys.firstIndex(of: lhsShortcut),
+                  let rhsIndex = Self.pinnedShortcutKeys.firstIndex(of: rhsShortcut)
+            else {
+                return lhs.capturedAt > rhs.capturedAt
+            }
+            return lhsIndex < rhsIndex
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return lhs.capturedAt > rhs.capturedAt
+        }
     }
 
     private func resolvedState(for item: ClipboardItem) -> ClipboardItemResolvedState {

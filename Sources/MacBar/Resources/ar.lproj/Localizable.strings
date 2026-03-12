@@ -58,7 +58,6 @@
 "ui.settings.title" = "الإعدادات";
 "ui.settings.subtitle" = "اضبط طريقة التقاط MacBar لسجل الحافظة وتخزينه وإعادة استخدامه.";
 "ui.settings.button.open" = "الإعدادات";
-"ui.settings.button.back" = "رجوع";
 "ui.settings.button.checkUpdates" = "تحقق الآن";
 "ui.settings.button.installUpdate" = "تثبيت التحديث";
 "ui.settings.section.behavior" = "السلوك";

@@ -3,7 +3,6 @@ import SwiftUI
 
 struct MenuBarRootView: View {
     @ObservedObject var store: MacBarStore
-    @ObservedObject var localizationManager: LocalizationManager
     let airDropService: AirDropService
     let ocrService: OCRService
     let onPreferredSizeChange: ((CGSize) -> Void)?
@@ -23,6 +22,7 @@ struct MenuBarRootView: View {
     @State private var globalKeyDownMonitor: Any?
     @State private var scrollProxy: ScrollViewProxy?
     @State private var selectedImageCopyMode: ClipboardImageCopyMode = .image
+    @State private var showsImageCopyModeTip: Bool = false
 
     private let mainWidth: CGFloat = 460
     private let previewWidth: CGFloat = 320
@@ -30,23 +30,16 @@ struct MenuBarRootView: View {
     private let hoverSelectionDelay: Duration = .milliseconds(45)
     private let hoverExitDelay: Duration = .milliseconds(70)
 
-    private var isShowingSettings: Bool {
-        store.activePanel == .settings
-    }
-
     private var preferredPanelSize: CGSize {
         let previewPaneWidth: CGFloat = showPreview ? (previewWidth + 1) : 0
         return CGSize(width: mainWidth + previewPaneWidth, height: panelHeight)
     }
 
     private var showPreview: Bool {
-        !isShowingSettings && store.showsPreviewPane && selectedClipboardItem != nil
+        store.showsPreviewPane && selectedClipboardItem != nil
     }
 
     private var selectedClipboardItem: ClipboardItem? {
-        guard store.activePanel == .clipboard else {
-            return nil
-        }
         guard let selectedClipboardItemID else { return nil }
         return clipboardNavigationItems.first { $0.id == selectedClipboardItemID }
     }
@@ -150,7 +143,7 @@ struct MenuBarRootView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        activePanelBody
+                        clipboardPanelBody
                             .padding(.vertical, 2)
                     }
                     .onAppear { scrollProxy = proxy }
@@ -189,11 +182,6 @@ struct MenuBarRootView: View {
         .onChange(of: showPreview) {
             onPreferredSizeChange?(preferredPanelSize)
         }
-        .onChange(of: store.activePanel) {
-            if store.activePanel == .settings {
-                store.refreshLaunchAtLoginStatus()
-            }
-        }
         .onChange(of: clipboardNavigationIDs) {
             syncSelectedClipboardItem()
         }
@@ -220,14 +208,13 @@ struct MenuBarRootView: View {
             hoverSelectionTask = nil
             hoveredClipboardItemID = nil
             ocrQueue.reset(resetCompleted: true)
-            store.activePanel = .clipboard
             removeKeyMonitor()
         }
         .onMoveCommand { direction in
             handleMoveCommand(direction)
         }
         .onSubmit {
-            copySelectedClipboardItem()
+            copySelectedClipboardItem(triggeredByKeyboard: true)
         }
         .alert(
             pendingDestructiveAction.map { store.localized($0.titleKey) } ?? "",
@@ -250,14 +237,13 @@ struct MenuBarRootView: View {
         } message: {
             Text(store.localized($0.messageKey))
         }
-    }
-
-    @ViewBuilder
-    private var activePanelBody: some View {
-        if store.activePanel == .settings {
-            settingsPanelBody
-        } else {
-            clipboardPanelBody
+        .alert(
+            store.localized("ui.clipboard.tip.imageCopyMode.title"),
+            isPresented: $showsImageCopyModeTip
+        ) {
+            Button(store.localized("ui.button.gotIt"), role: .cancel) {}
+        } message: {
+            Text(store.localized("ui.clipboard.tip.imageCopyMode.message"))
         }
     }
 
@@ -339,7 +325,7 @@ struct MenuBarRootView: View {
                                         NSWorkspace.shared.activateFileViewerSelecting(refreshedURLs)
                                     }
                                 } label: {
-                                    Label(store.localized("ui.clipboard.button.revealInFinder"), systemImage: "folder")
+                                    Text(store.localized("ui.clipboard.button.revealInFinder"))
                                         .font(.caption)
                                 }
                                 .buttonStyle(.bordered)
@@ -350,7 +336,7 @@ struct MenuBarRootView: View {
                                     Button {
                                         copyClipboardItemAsFileToPasteboard(item.id)
                                     } label: {
-                                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                                        Text(store.localized("ui.clipboard.button.copyAsFile"))
                                             .font(.caption)
                                     }
                                     .buttonStyle(.bordered)
@@ -432,12 +418,21 @@ struct MenuBarRootView: View {
         showsAirDropAction: Bool,
         showsCopyAsFileAction: Bool
     ) -> some View {
+        let showsSupplementaryContent =
+            store.clipboardOCRCache[item.id] != nil
+            || ocrQueue.runningItemIDs.contains(item.id)
+            || ocrQueue.pendingItemIDs.contains(item.id)
+            || showsAirDropAction
+            || showsCopyAsFileAction
+
         Image(nsImage: image)
             .resizable()
             .scaledToFit()
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
 
-        Divider()
+        if showsSupplementaryContent {
+            Divider()
+        }
 
         if let ocrText = store.clipboardOCRCache[item.id] {
             HStack {
@@ -452,20 +447,20 @@ struct MenuBarRootView: View {
                     Button {
                         copyClipboardItemAsFileToPasteboard(item.id)
                     } label: {
-                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                        Text(store.localized("ui.clipboard.button.copyAsFile"))
                             .font(.caption)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .controlSize(.small)
                 }
                 Button {
                     copyTextToPasteboard(ocrText)
                 } label: {
-                    Label(store.localized("ui.clipboard.button.copy"), systemImage: "doc.on.doc")
+                    Text(store.localized("ui.clipboard.button.copy"))
                         .font(.caption)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.mini)
+                .controlSize(.small)
             }
 
             Text(ocrText)
@@ -489,11 +484,11 @@ struct MenuBarRootView: View {
                     Button {
                         copyClipboardItemAsFileToPasteboard(item.id)
                     } label: {
-                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                        Text(store.localized("ui.clipboard.button.copyAsFile"))
                             .font(.caption)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .controlSize(.small)
                 }
             }
         } else if showsAirDropAction || showsCopyAsFileAction {
@@ -503,11 +498,11 @@ struct MenuBarRootView: View {
                     Button {
                         copyClipboardItemAsFileToPasteboard(item.id)
                     } label: {
-                        Label(store.localized("ui.clipboard.button.copyAsFile"), systemImage: "doc.badge.plus")
+                        Text(store.localized("ui.clipboard.button.copyAsFile"))
                             .font(.caption)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .controlSize(.small)
                 }
                 if showsAirDropAction {
                     airDropButton(for: item)
@@ -518,15 +513,7 @@ struct MenuBarRootView: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        Group {
-            if store.activePanel == .settings {
-                settingsHeader
-            } else {
-                clipboardHeader
-            }
-        }
-    }
+    private var header: some View { clipboardHeader }
 
     private var clipboardHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -544,7 +531,7 @@ struct MenuBarRootView: View {
                     onMoveDown: { moveClipboardSelection(delta: 1) },
                     onMoveLeft: { handleSelectedImageCopyModeChange(.image) },
                     onMoveRight: { handleSelectedImageCopyModeChange(.file) },
-                    onSubmit: { copySelectedClipboardItem() },
+                    onSubmit: { copySelectedClipboardItem(triggeredByKeyboard: true) },
                     onCancel: { handleCancelAction() }
                 )
                 .frame(minWidth: 180, maxWidth: .infinity)
@@ -596,31 +583,6 @@ struct MenuBarRootView: View {
         }
     }
 
-    private var settingsHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(store.localized("ui.settings.title"))
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    store.activePanel = .clipboard
-                } label: {
-                    Label(store.localized("ui.settings.button.back"), systemImage: "chevron.left")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-
-            Text(store.localized("ui.settings.subtitle"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
     // MARK: - Clipboard Panel
 
     private var clipboardNavigationItems: [ClipboardItem] {
@@ -668,21 +630,48 @@ struct MenuBarRootView: View {
     }
 
     private var clipboardEmptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "doc.on.clipboard")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text(store.localized("ui.clipboard.empty.title"))
-                .font(.subheadline.weight(.semibold))
-            Text(
-                store.localized(
-                    store.isClipboardMonitoringEnabled
-                        ? "ui.clipboard.empty.hint.monitoringOn"
-                        : "ui.clipboard.empty.hint.monitoringOff"
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+
+                    Text(store.localized("ui.clipboard.empty.tutorial.title"))
+                        .font(.headline.weight(.semibold))
+                }
+
+                Text(
+                    store.localized(
+                        store.isClipboardMonitoringEnabled
+                            ? "ui.clipboard.empty.tutorial.subtitle.monitoringOn"
+                            : "ui.clipboard.empty.tutorial.subtitle.monitoringOff"
+                    )
                 )
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                emptyTutorialStep(
+                    number: 1,
+                    titleKey: "ui.clipboard.empty.tutorial.step1.title",
+                    bodyKey: "ui.clipboard.empty.tutorial.step1.body"
+                )
+                emptyTutorialStep(
+                    number: 2,
+                    titleKey: "ui.clipboard.empty.tutorial.step2.title",
+                    bodyKey: "ui.clipboard.empty.tutorial.step2.body"
+                )
+                emptyTutorialStep(
+                    number: 3,
+                    titleKey: "ui.clipboard.empty.tutorial.step3.title",
+                    bodyKey: "ui.clipboard.empty.tutorial.step3.body"
+                )
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             if !store.isClipboardMonitoringEnabled {
                 Button(store.localized("ui.clipboard.button.resumeMonitoring")) {
@@ -690,11 +679,28 @@ struct MenuBarRootView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
+        .padding(.vertical, 20)
+    }
+
+    private func emptyTutorialStep(number: Int, titleKey: String, bodyKey: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(number)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.secondary.opacity(0.14)))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(store.localized(titleKey))
+                    .font(.subheadline.weight(.semibold))
+                Text(store.localized(bodyKey))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var clipboardSearchEmptyState: some View {
@@ -715,220 +721,6 @@ struct MenuBarRootView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
-    }
-
-    private var settingsPanelBody: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            settingsSection(
-                title: store.localized("ui.language.menu")
-            ) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker(
-                        store.localized("ui.language.menu"),
-                        selection: selectedLanguageCodeBinding
-                    ) {
-                        ForEach(localizationManager.languageOptions) { option in
-                            Text(languageLabel(for: option)).tag(option.code)
-                        }
-                    }
-                    .pickerStyle(.menu)
-
-                    Text(store.localized("ui.settings.language.footer"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            settingsSection(
-                title: store.localized("ui.settings.section.behavior"),
-                footer: store.localized("ui.settings.section.behavior.footer")
-            ) {
-                Toggle(
-                    store.localized("ui.settings.option.closeAfterCopy"),
-                    isOn: closesPanelAfterCopyBinding
-                )
-
-                Toggle(
-                    store.localized("ui.settings.option.restoreAfterCopy"),
-                    isOn: restoresPreviousAppAfterCopyBinding
-                )
-                .disabled(!store.closesPanelAfterCopy)
-
-                Toggle(
-                    store.localized("ui.settings.option.showPreviewPane"),
-                    isOn: showsPreviewPaneBinding
-                )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle(
-                        store.localized("ui.settings.option.launchAtLogin"),
-                        isOn: launchesAtLoginBinding
-                    )
-
-                    Text(launchAtLoginStatusDescription)
-                        .font(.caption)
-                        .foregroundStyle(launchAtLoginStatusTint)
-                }
-            }
-
-            settingsSection(
-                title: store.localized("ui.settings.section.capture"),
-                footer: store.localized("ui.settings.section.capture.footer")
-            ) {
-                Toggle(
-                    store.localized("ui.settings.option.monitorClipboard"),
-                    isOn: clipboardMonitoringBinding
-                )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Stepper(
-                        value: maxHistoryItemsBinding,
-                        in: AppSettings.minimumHistoryItemLimit...AppSettings.maximumHistoryItemLimit,
-                        step: AppSettings.historyItemStep
-                    ) {
-                        settingsValueRow(
-                            title: store.localized("ui.settings.option.maxHistoryItems"),
-                            value: store.localized("ui.settings.value.historyItems", store.settings.maxHistoryItems)
-                        )
-                    }
-
-                    Text(store.localized("ui.settings.caption.maxHistoryItems"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Stepper(
-                        value: maxStoredImageCacheSizeBinding,
-                        in: AppSettings.minimumImageStorageLimitMB...AppSettings.maximumImageStorageLimitMB,
-                        step: AppSettings.imageStorageStepMB
-                    ) {
-                        settingsValueRow(
-                            title: store.localized("ui.settings.option.maxImageCache"),
-                            value: store.localized("ui.settings.value.imageCacheMB", store.settings.maxStoredImageCacheSizeMB)
-                        )
-                    }
-
-                    Text(store.localized("ui.settings.caption.maxImageCache"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            settingsSection(
-                title: store.localized("ui.settings.section.ocr"),
-                footer: store.localized("ui.settings.section.ocr.footer")
-            ) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(store.localized("ui.settings.option.ocrMode"))
-                        .font(.subheadline.weight(.medium))
-
-                    Picker("", selection: ocrModeBinding) {
-                        ForEach(ClipboardOCRMode.allCases) { mode in
-                            Text(ocrModeLabel(for: mode)).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-            }
-
-            if BuildInfo.supportsExternalUpdates {
-                settingsSection(
-                    title: store.localized("ui.settings.section.update"),
-                    footer: store.localized("ui.settings.section.update.footer")
-                ) {
-                    Toggle(
-                        store.localized("ui.settings.option.autoCheckUpdates"),
-                        isOn: automaticUpdateCheckBinding
-                    )
-
-                    HStack(spacing: 10) {
-                        Button {
-                            triggerManualUpdateCheck()
-                        } label: {
-                            Label(
-                                store.localized("ui.settings.button.checkUpdates"),
-                                systemImage: "arrow.clockwise.circle"
-                            )
-                            .font(.caption)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(store.isCheckingForUpdates)
-
-                        if store.isCheckingForUpdates {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text(store.localized("feedback.update.checking"))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if let release = store.pendingUpdateRelease {
-                            Text(store.localized("ui.settings.update.available", release.versionNumber))
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        if store.pendingUpdateRelease != nil {
-                            Button {
-                                Task { await store.installUpdate() }
-                            } label: {
-                                Label(store.localized("ui.settings.button.installUpdate"), systemImage: "arrow.down.circle.fill")
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .tint(.green)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func settingsSection<Content: View>(
-        title: String,
-        footer: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 12) {
-                content()
-            }
-
-            if let footer, !footer.isEmpty {
-                Text(footer)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.quaternary.opacity(0.22))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
-        )
-    }
-
-    private func settingsValueRow(title: String, value: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-            Spacer(minLength: 10)
-            Text(value)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
     }
 
     private func clipboardPinnedSection(title: String, items: [ClipboardItem]) -> some View {
@@ -1151,14 +943,6 @@ struct MenuBarRootView: View {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let isDeleteKey = event.keyCode == 51 || event.keyCode == 117
 
-        if store.activePanel == .settings {
-            if flags.isEmpty, event.keyCode == 53 {
-                store.activePanel = .clipboard
-                return true
-            }
-            return false
-        }
-
         // ⌘+Delete / ⌘+Backspace: always delete selected item regardless of search text
         if flags == [.command], isDeleteKey {
             deleteSelectedClipboardItem()
@@ -1215,7 +999,7 @@ struct MenuBarRootView: View {
         case 124: // right
             return handleSelectedImageCopyModeChange(.file)
         case 36, 76: // return / keypad enter
-            copySelectedClipboardItem()
+            copySelectedClipboardItem(triggeredByKeyboard: true)
             return true
         case 53: // escape
             requestClosePanel(restorePreviousApp: true)
@@ -1226,10 +1010,6 @@ struct MenuBarRootView: View {
     }
 
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
-        guard store.activePanel == .clipboard else {
-            return
-        }
-
         switch direction {
         case .up:
             moveClipboardSelection(delta: -1)
@@ -1257,7 +1037,7 @@ struct MenuBarRootView: View {
         scrollProxy?.scrollTo(newID)
     }
 
-    private func copySelectedClipboardItem() {
+    private func copySelectedClipboardItem(triggeredByKeyboard: Bool = false) {
         let items = clipboardNavigationItems
         guard !items.isEmpty else {
             return
@@ -1268,10 +1048,16 @@ struct MenuBarRootView: View {
         if store.clipboardIsFileItem(selected) {
             store.refreshClipboardFileAvailability(force: true)
         }
-        guard store.clipboardCanCopy(selected) else {
-            return
+        let shouldShowTip = triggeredByKeyboard
+            && supportsAlternateFileCopy(for: selected)
+            && !store.hasSeenImageCopyModeTip
+        let didCopy = performPrimaryClipboardAction(
+            for: selected.id,
+            closesPanelOverride: shouldShowTip ? false : nil
+        )
+        if triggeredByKeyboard, didCopy {
+            presentImageCopyModeTipIfNeeded(for: selected)
         }
-        performPrimaryClipboardAction(for: selected.id)
     }
 
     private func deleteSelectedClipboardItem() {
@@ -1334,10 +1120,6 @@ struct MenuBarRootView: View {
     }
 
     private func handleClipboardRowHover(isHovering: Bool, itemID: UUID) {
-        guard store.activePanel == .clipboard else {
-            return
-        }
-
         if isHovering {
             guard !isHoverSelectionSuspended else {
                 return
@@ -1512,113 +1294,15 @@ struct MenuBarRootView: View {
 
     private var panelToggleButton: some View {
         Button {
-            store.activePanel = store.activePanel == .settings ? .clipboard : .settings
+            openSettingsWindow()
         } label: {
             Label(
-                store.activePanel == .settings
-                    ? store.localized("ui.settings.button.back")
-                    : store.localized("ui.settings.button.open"),
-                systemImage: store.activePanel == .settings ? "chevron.left.circle" : "gearshape"
+                store.localized("ui.settings.button.open"),
+                systemImage: "gearshape"
             )
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
-    }
-
-    private var closesPanelAfterCopyBinding: Binding<Bool> {
-        Binding(
-            get: { store.closesPanelAfterCopy },
-            set: { store.setClosesPanelAfterCopy($0) }
-        )
-    }
-
-    private var restoresPreviousAppAfterCopyBinding: Binding<Bool> {
-        Binding(
-            get: { store.restoresPreviousAppAfterCopy },
-            set: { store.setRestoresPreviousAppAfterCopy($0) }
-        )
-    }
-
-    private var showsPreviewPaneBinding: Binding<Bool> {
-        Binding(
-            get: { store.showsPreviewPane },
-            set: { store.setShowsPreviewPane($0) }
-        )
-    }
-
-    private var launchesAtLoginBinding: Binding<Bool> {
-        Binding(
-            get: { store.launchesAtLogin },
-            set: { store.setLaunchesAtLogin($0) }
-        )
-    }
-
-    private var clipboardMonitoringBinding: Binding<Bool> {
-        Binding(
-            get: { store.isClipboardMonitoringEnabled },
-            set: { store.setClipboardMonitoringEnabled($0) }
-        )
-    }
-
-    private var maxHistoryItemsBinding: Binding<Int> {
-        Binding(
-            get: { store.settings.maxHistoryItems },
-            set: { store.setMaxHistoryItems($0) }
-        )
-    }
-
-    private var maxStoredImageCacheSizeBinding: Binding<Int> {
-        Binding(
-            get: { store.settings.maxStoredImageCacheSizeMB },
-            set: { store.setMaxStoredImageCacheSizeMB($0) }
-        )
-    }
-
-    private var ocrModeBinding: Binding<ClipboardOCRMode> {
-        Binding(
-            get: { store.ocrMode },
-            set: { store.setOCRMode($0) }
-        )
-    }
-
-    private var automaticUpdateCheckBinding: Binding<Bool> {
-        Binding(
-            get: { store.automaticallyChecksForUpdates },
-            set: { store.setAutomaticallyChecksForUpdates($0) }
-        )
-    }
-
-    private var selectedLanguageCodeBinding: Binding<String> {
-        Binding(
-            get: { localizationManager.selectedLanguageCode },
-            set: { localizationManager.selectLanguage(code: $0) }
-        )
-    }
-
-    private var launchAtLoginStatusDescription: String {
-        switch store.launchAtLoginStatus {
-        case .enabled:
-            return store.localized("ui.settings.caption.launchAtLogin.enabled")
-        case .disabled:
-            return store.localized("ui.settings.caption.launchAtLogin.disabled")
-        case .requiresApproval:
-            return store.localized("ui.settings.caption.launchAtLogin.requiresApproval")
-        case .unavailable:
-            return store.localized("ui.settings.caption.launchAtLogin.unavailable")
-        }
-    }
-
-    private var launchAtLoginStatusTint: AnyShapeStyle {
-        switch store.launchAtLoginStatus {
-        case .enabled:
-            return AnyShapeStyle(Color.secondary)
-        case .disabled:
-            return AnyShapeStyle(Color.secondary)
-        case .requiresApproval:
-            return AnyShapeStyle(Color.orange)
-        case .unavailable:
-            return AnyShapeStyle(Color.secondary)
-        }
     }
 
     private func presentFeedback(_ feedback: StoreFeedback?) {
@@ -1646,21 +1330,8 @@ struct MenuBarRootView: View {
         }
     }
 
-    private func languageLabel(for option: LanguageOption) -> String {
-        if option.code == LocalizationManager.systemLanguageCode {
-            let systemName = localizationManager.systemLanguageName
-            return localizationManager.localized("ui.language.followSystem", systemName)
-        }
-
-        return option.label
-    }
-
     @MainActor
     private func reprioritizeSelectedClipboardItemForOCR() {
-        guard store.activePanel == .clipboard else {
-            return
-        }
-
         guard store.ocrMode != .disabled else {
             stopOCRProcessing(resetCompleted: false)
             return
@@ -2016,22 +1687,29 @@ struct MenuBarRootView: View {
         }
     }
 
-    private func copyClipboardItemToPasteboard(_ itemID: UUID) {
+    @discardableResult
+    private func copyClipboardItemToPasteboard(
+        _ itemID: UUID,
+        closesPanelOverride: Bool? = nil
+    ) -> Bool {
         commitClipboardSelection(itemID, clearsHoverState: false)
         guard let item = store.clipboardHistory.first(where: { $0.id == itemID }) else {
-            return
+            return false
         }
         if store.clipboardIsFileItem(item) {
             store.refreshClipboardFileAvailability(force: true)
         }
         guard store.clipboardCanCopy(item) else {
-            return
+            return false
         }
-        let shouldClosePanel = onRequestClose != nil && store.closesPanelAfterCopy
+        let shouldClosePanel = closesPanelOverride ?? (onRequestClose != nil && store.closesPanelAfterCopy)
         let feedback = store.copyClipboardItem(
             itemID,
             persistHistoryImmediately: !shouldClosePanel
         )
+        guard feedback != nil else {
+            return false
+        }
 
         if shouldClosePanel {
             requestClosePanel(restorePreviousApp: store.restoresPreviousAppAfterCopy)
@@ -2041,22 +1719,27 @@ struct MenuBarRootView: View {
         } else {
             presentFeedback(feedback)
         }
+        return true
     }
 
-    private func performPrimaryClipboardAction(for itemID: UUID) {
+    @discardableResult
+    private func performPrimaryClipboardAction(
+        for itemID: UUID,
+        closesPanelOverride: Bool? = nil
+    ) -> Bool {
         guard let item = store.clipboardHistory.first(where: { $0.id == itemID }) else {
-            return
+            return false
         }
 
         if activePrimaryCopyMode(for: item) == .file {
-            copyClipboardItemAsFileToPasteboard(itemID)
+            return copyClipboardItemAsFileToPasteboard(itemID, closesPanelOverride: closesPanelOverride)
         } else {
-            copyClipboardItemToPasteboard(itemID)
+            return copyClipboardItemToPasteboard(itemID, closesPanelOverride: closesPanelOverride)
         }
     }
 
     private func supportsAlternateFileCopy(for item: ClipboardItem) -> Bool {
-        store.clipboardPreviewImage(for: item) != nil && store.clipboardCanCopyAsFile(item)
+        store.clipboardHasPreviewImage(for: item) && store.clipboardCanCopyAsFile(item)
     }
 
     private func activePrimaryCopyMode(for item: ClipboardItem) -> ClipboardImageCopyMode {
@@ -2095,6 +1778,22 @@ struct MenuBarRootView: View {
             )
     }
 
+    private func presentImageCopyModeTipIfNeeded(for item: ClipboardItem) {
+        guard supportsAlternateFileCopy(for: item),
+              !store.hasSeenImageCopyModeTip
+        else {
+            return
+        }
+
+        store.markImageCopyModeTipAsSeen()
+        showsImageCopyModeTip = true
+    }
+
+    private func openSettingsWindow() {
+        onRequestClose?(false)
+        AppDelegate.shared?.showSettingsWindow(nil)
+    }
+
     private func copyTextToPasteboard(_ text: String) {
         let feedback = store.copyTextToClipboard(text)
         if onRequestClose != nil && store.closesPanelAfterCopy {
@@ -2104,23 +1803,30 @@ struct MenuBarRootView: View {
         }
     }
 
-    private func copyClipboardItemAsFileToPasteboard(_ itemID: UUID) {
+    @discardableResult
+    private func copyClipboardItemAsFileToPasteboard(
+        _ itemID: UUID,
+        closesPanelOverride: Bool? = nil
+    ) -> Bool {
         commitClipboardSelection(itemID, clearsHoverState: false)
         guard let item = store.clipboardHistory.first(where: { $0.id == itemID }) else {
-            return
+            return false
         }
         if store.clipboardIsFileItem(item) {
             store.refreshClipboardFileAvailability(force: true)
         }
         guard store.clipboardCanCopyAsFile(item) else {
-            return
+            return false
         }
 
-        let shouldClosePanel = onRequestClose != nil && store.closesPanelAfterCopy
+        let shouldClosePanel = closesPanelOverride ?? (onRequestClose != nil && store.closesPanelAfterCopy)
         let feedback = store.copyClipboardItemAsFile(
             itemID,
             persistHistoryImmediately: !shouldClosePanel
         )
+        guard feedback != nil else {
+            return false
+        }
 
         if shouldClosePanel {
             requestClosePanel(restorePreviousApp: store.restoresPreviousAppAfterCopy)
@@ -2130,6 +1836,7 @@ struct MenuBarRootView: View {
         } else {
             presentFeedback(feedback)
         }
+        return true
     }
 
     private func performDestructiveAction(_ action: ClipboardDestructiveAction) {
@@ -2152,26 +1859,6 @@ struct MenuBarRootView: View {
 
     private func textRowSubtitle(for item: ClipboardItem) -> String {
         store.clipboardDisplaySubtitle(for: item)
-    }
-
-    private func ocrModeLabel(for mode: ClipboardOCRMode) -> String {
-        switch mode {
-        case .automatic:
-            return store.localized("ui.settings.ocrMode.automatic")
-        case .selectedOnly:
-            return store.localized("ui.settings.ocrMode.selectedOnly")
-        case .disabled:
-            return store.localized("ui.settings.ocrMode.disabled")
-        }
-    }
-
-    private func triggerManualUpdateCheck() {
-        Task {
-            let feedback = await store.checkForUpdatesManually()
-            await MainActor.run {
-                presentFeedback(feedback)
-            }
-        }
     }
 
     private func itemSupportsOCR(_ item: ClipboardItem) -> Bool {
@@ -2235,7 +1922,7 @@ struct MenuBarRootView: View {
             Button {
                 airDropClipboardItem(item)
             } label: {
-                Label(title, systemImage: "square.and.arrow.up")
+                Text(title)
                     .font(.caption)
             }
             .buttonStyle(.bordered)

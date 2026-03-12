@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,10 +11,10 @@
 		153E03CE70A799B7D7BE9B91 /* ClipboardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5A9817A17653BEFDC4ABB3 /* ClipboardItem.swift */; };
 		1B76BC713EF0DF56DAAAA82D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 42E832B2695B7F50830B8E35 /* Assets.xcassets */; };
 		3496681307762700CA395A2E /* MacBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962136CA5EFF4CF38CBA42BB /* MacBar.swift */; };
+		3A5449B120FF3B6D02881062 /* SettingsRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAB0701D21718493D826A10 /* SettingsRootView.swift */; };
 		485359958973A77CDA244FE7 /* MenuBarRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AEBB16B0DBABD70A95421C9 /* MenuBarRootView.swift */; };
 		6334DE5902ACB8617AD766E9 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B0F6624E6C1C01E32AA4D0 /* UpdateService.swift */; };
 		651B9B2514C9E38BCCBA5FF1 /* ClipboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6096D4EE79F6375E2E6E595 /* ClipboardMonitor.swift */; };
-		68A500407B585500CC8D3056 /* AppPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8DC80A0A616B3573EB6F465 /* AppPanel.swift */; };
 		76A1652F89D4797A2E35AB0D /* SecurityScopedFileAccessService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D0872B181F2F5171EFE476 /* SecurityScopedFileAccessService.swift */; };
 		76AD4173504B3B4400F24152 /* ClipboardImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5911148380544AD54A78A6 /* ClipboardImageStore.swift */; };
 		99AFB556E9B5F5B9590EFAFF /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683E53A410FE60C062B18305 /* AppServices.swift */; };
@@ -37,6 +37,7 @@
 		35FBD69E15A822A6893D1E48 /* LaunchAtLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginService.swift; sourceTree = "<group>"; };
 		37D8B7558BBE707EC5FAC686 /* AirDropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirDropService.swift; sourceTree = "<group>"; };
 		3B5911148380544AD54A78A6 /* ClipboardImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardImageStore.swift; sourceTree = "<group>"; };
+		3BAB0701D21718493D826A10 /* SettingsRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRootView.swift; sourceTree = "<group>"; };
 		42E832B2695B7F50830B8E35 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		535F37D9A8A206B946C06712 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		5A5A9817A17653BEFDC4ABB3 /* ClipboardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardItem.swift; sourceTree = "<group>"; };
@@ -53,7 +54,6 @@
 		B6096D4EE79F6375E2E6E595 /* ClipboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardMonitor.swift; sourceTree = "<group>"; };
 		C20A90F0F76699F24078A5F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		C5D0872B181F2F5171EFE476 /* SecurityScopedFileAccessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedFileAccessService.swift; sourceTree = "<group>"; };
-		C8DC80A0A616B3573EB6F465 /* AppPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPanel.swift; sourceTree = "<group>"; };
 		D0E73BF5D7621AA9FE055D1B /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		D1B0F6624E6C1C01E32AA4D0 /* UpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
 		DAA740984A3C8CC1BE9BC867 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -79,7 +79,6 @@
 		022CA7411A2F90FDF833779D /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				C8DC80A0A616B3573EB6F465 /* AppPanel.swift */,
 				9B1EEDE9202BDAFF47F53E58 /* AppSettings.swift */,
 				5A5A9817A17653BEFDC4ABB3 /* ClipboardItem.swift */,
 			);
@@ -90,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				8AEBB16B0DBABD70A95421C9 /* MenuBarRootView.swift */,
+				3BAB0701D21718493D826A10 /* SettingsRootView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -180,6 +180,11 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					30AD69D247DC35DAFAF37882 = {
+						DevelopmentTeam = P69755L5ZN;
+					};
+				};
 			};
 			buildConfigurationList = B7DCDD2799913D2212A48762 /* Build configuration list for PBXProject "MacBar" */;
 			compatibilityVersion = "Xcode 14.0";
@@ -197,6 +202,7 @@
 			);
 			mainGroup = 6ED0F4BBD3117AB8BD5FFB9E;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -224,7 +230,6 @@
 			files = (
 				B1CFABC8AE41E9F51D9A3318 /* AirDropService.swift in Sources */,
 				DDE948DA9E0E4DBC6A13CF50 /* AppDelegate.swift in Sources */,
-				68A500407B585500CC8D3056 /* AppPanel.swift in Sources */,
 				99AFB556E9B5F5B9590EFAFF /* AppServices.swift in Sources */,
 				D2B08FD20ABCD61E400F9EDA /* AppSettings.swift in Sources */,
 				B6801350C85A4F212B45A972 /* AppVersion.swift in Sources */,
@@ -239,6 +244,7 @@
 				485359958973A77CDA244FE7 /* MenuBarRootView.swift in Sources */,
 				9D4DCB14C1DBC1C9B493E494 /* OCRService.swift in Sources */,
 				76A1652F89D4797A2E35AB0D /* SecurityScopedFileAccessService.swift in Sources */,
+				3A5449B120FF3B6D02881062 /* SettingsRootView.swift in Sources */,
 				6334DE5902ACB8617AD766E9 /* UpdateService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -331,32 +337,16 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "3rd Party Mac Developer Application";
+				CODE_SIGN_IDENTITY = "3rd Party Mac Developer Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = P69755L5ZN;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
 				INFOPLIST_FILE = Sources/MacBar/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				PROVISIONING_PROFILE = "a23eeb73-9815-4c4b-aba5-0968dc906e3e";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "MacBar App Store";
+				PROVISIONING_PROFILE_SPECIFIER = "MacBar App Store";
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -365,29 +355,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = P69755L5ZN;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
 				INFOPLIST_FILE = Sources/MacBar/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 			};
 			name = Debug;

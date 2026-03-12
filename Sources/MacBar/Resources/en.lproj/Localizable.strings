@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "Clipboard history is empty";
 "ui.clipboard.empty.hint.monitoringOn" = "Copy text, images, or Finder files and MacBar will capture them automatically.";
 "ui.clipboard.empty.hint.monitoringOff" = "Monitoring is paused. Resume monitoring to capture new clipboard items.";
+"ui.clipboard.empty.tutorial.title" = "Start here";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar is ready. The first item you copy will appear here automatically.";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "Clipboard monitoring is paused. Resume it first, then your copied items will appear here.";
+"ui.clipboard.empty.tutorial.step1.title" = "Copy text, images, or Finder files";
+"ui.clipboard.empty.tutorial.step1.body" = "MacBar captures new clipboard items automatically while monitoring is on.";
+"ui.clipboard.empty.tutorial.step2.title" = "Press Enter or double-click to copy again";
+"ui.clipboard.empty.tutorial.step2.body" = "Select any item in the list, then reuse it instantly in your next app.";
+"ui.clipboard.empty.tutorial.step3.title" = "For images, use left and right arrows";
+"ui.clipboard.empty.tutorial.step3.body" = "Choose Image for apps like Word. Choose File when pasting into Finder or folders.";
 "ui.clipboard.empty.search.title" = "No clipboard items match your search";
 "ui.clipboard.empty.search.hint" = "Try a different keyword or clear the search to see your full history.";
 "ui.clipboard.item.empty" = "(Empty text)";
@@ -42,7 +51,6 @@
 "ui.settings.title" = "Settings";
 "ui.settings.subtitle" = "Tune how MacBar captures, stores, and reuses clipboard history.";
 "ui.settings.button.open" = "Settings";
-"ui.settings.button.back" = "Back";
 "ui.settings.button.checkUpdates" = "Check Now";
 "ui.settings.button.installUpdate" = "Install Update";
 "ui.settings.section.behavior" = "Behavior";
@@ -81,6 +89,7 @@
 "ui.update.installing" = "Installing...";
 "ui.menu.actions" = "Actions";
 "ui.button.quit" = "Quit MacBar";
+"ui.button.gotIt" = "Got It";
 "ui.button.cancel" = "Cancel";
 "ui.language.menu" = "Language";
 "ui.language.system" = "System";
@@ -91,6 +100,8 @@
 "feedback.clipboard.clearedAll" = "Cleared all clipboard items.";
 "feedback.clipboard.monitoringPaused" = "Clipboard monitoring is paused.";
 "feedback.clipboard.monitoringResumed" = "Clipboard monitoring resumed.";
+"ui.clipboard.tip.imageCopyMode.title" = "Image copy modes";
+"ui.clipboard.tip.imageCopyMode.message" = "You can switch image copy mode with the left and right arrow keys. Choose File when you want to paste into Finder or a folder. Choose Image when you want to paste into apps like Word.";
 "feedback.update.title" = "Update";
 "feedback.update.checking" = "Checking...";
 "feedback.update.available" = "Version %@ is available.";

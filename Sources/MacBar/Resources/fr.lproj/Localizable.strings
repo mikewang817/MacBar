@@ -58,7 +58,6 @@
 "ui.settings.title" = "Réglages";
 "ui.settings.subtitle" = "Ajustez la façon dont MacBar capture, stocke et réutilise l'historique du presse-papiers.";
 "ui.settings.button.open" = "Réglages";
-"ui.settings.button.back" = "Retour";
 "ui.settings.button.checkUpdates" = "Vérifier";
 "ui.settings.button.installUpdate" = "Installer la mise à jour";
 "ui.settings.section.behavior" = "Comportement";

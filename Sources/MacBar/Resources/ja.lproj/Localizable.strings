@@ -58,7 +58,6 @@
 "ui.settings.title" = "設定";
 "ui.settings.subtitle" = "MacBar のコピー後の挙動、履歴の保持、OCR と更新を調整します。";
 "ui.settings.button.open" = "設定";
-"ui.settings.button.back" = "戻る";
 "ui.settings.button.checkUpdates" = "今すぐ確認";
 "ui.settings.button.installUpdate" = "更新をインストール";
 "ui.settings.section.behavior" = "動作";

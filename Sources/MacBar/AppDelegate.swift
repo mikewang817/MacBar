@@ -13,8 +13,11 @@ private final class MacBarPanel: NSPanel {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static weak var shared: AppDelegate?
+
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var settingsWindow: NSWindow?
     private var previousActiveApplication: NSRunningApplication?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
@@ -27,9 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isApplyingPendingPanelSize = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         setupPanel()
+        setupSettingsWindow()
         setupGlobalHotkey()
 
         Task {
@@ -38,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Self.shared = nil
         AppServices.shared.store.flushPendingPersistence()
         stopEventMonitors()
         if let hotkeyLocalMonitor { NSEvent.removeMonitor(hotkeyLocalMonitor) }
@@ -60,7 +66,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rootView = MenuBarRootView(
             store: services.store,
-            localizationManager: services.localizationManager,
             airDropService: services.airDropService,
             ocrService: services.ocrService,
             onPreferredSizeChange: { [weak self] size in
@@ -87,6 +92,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentViewController = NSHostingController(rootView: rootView)
 
         self.panel = panel
+    }
+
+    private func setupSettingsWindow() {
+        settingsWindow = makeSettingsWindow()
+    }
+
+    private func makeSettingsWindow() -> NSWindow {
+        let services = AppServices.shared
+        let rootView = SettingsRootView(
+            store: services.store,
+            localizationManager: services.localizationManager
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = NSHostingController(rootView: rootView)
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName("MacBarSettingsWindow")
+        window.title = services.store.localized("ui.settings.title")
+        window.center()
+        return window
+    }
+
+    @objc
+    func showSettingsWindow(_ sender: Any? = nil) {
+        closePanel(restorePreviousApp: false)
+
+        let window = settingsWindow ?? {
+            let window = makeSettingsWindow()
+            settingsWindow = window
+            return window
+        }()
+
+        window.title = AppServices.shared.store.localized("ui.settings.title")
+        NSApp.activate(ignoringOtherApps: true)
+        if !window.isVisible {
+            window.center()
+        }
+        window.makeKeyAndOrderFront(sender)
     }
 
     @objc

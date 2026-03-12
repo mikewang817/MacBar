@@ -58,7 +58,6 @@
 "ui.settings.title" = "Einstellungen";
 "ui.settings.subtitle" = "Passen Sie an, wie MacBar den Zwischenablageverlauf erfasst, speichert und erneut verwendet.";
 "ui.settings.button.open" = "Einstellungen";
-"ui.settings.button.back" = "Zuruck";
 "ui.settings.button.checkUpdates" = "Jetzt prufen";
 "ui.settings.button.installUpdate" = "Update installieren";
 "ui.settings.section.behavior" = "Verhalten";

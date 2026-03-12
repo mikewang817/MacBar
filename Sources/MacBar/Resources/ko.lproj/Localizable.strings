@@ -58,7 +58,6 @@
 "ui.settings.title" = "설정";
 "ui.settings.subtitle" = "MacBar의 복사 후 동작, 기록 보관, OCR 및 업데이트 정책을 조정합니다.";
 "ui.settings.button.open" = "설정";
-"ui.settings.button.back" = "뒤로";
 "ui.settings.button.checkUpdates" = "지금 확인";
 "ui.settings.button.installUpdate" = "업데이트 설치";
 "ui.settings.section.behavior" = "동작";
