@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "سجل الحافظة فارغ";
 "ui.clipboard.empty.hint.monitoringOn" = "انسخ النصوص أو الصور أو ملفات Finder وسيقوم MacBar بالتقاطها تلقائيًا.";
 "ui.clipboard.empty.hint.monitoringOff" = "تم إيقاف المراقبة مؤقتًا. استئناف المراقبة لالتقاط عناصر الحافظة الجديدة.";
+"ui.clipboard.empty.tutorial.title" = "ابدأ من هنا";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar جاهز. سيظهر أول عنصر تنسخه هنا تلقائيًا.";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "تم إيقاف مراقبة الحافظة مؤقتًا. أعد تشغيلها أولاً، ثم ستظهر العناصر التي تنسخها هنا.";
+"ui.clipboard.empty.tutorial.step1.title" = "انسخ نصًا أو صورة أو ملفًا من Finder";
+"ui.clipboard.empty.tutorial.step1.body" = "يلتقط MacBar عناصر الحافظة الجديدة تلقائيًا طالما كانت المراقبة مفعلة.";
+"ui.clipboard.empty.tutorial.step2.title" = "اضغط Enter أو انقر نقرًا مزدوجًا للنسخ مرة أخرى";
+"ui.clipboard.empty.tutorial.step2.body" = "حدد أي عنصر من القائمة ثم أعد استخدامه فورًا في التطبيق التالي.";
+"ui.clipboard.empty.tutorial.step3.title" = "للصور، استخدم السهمين الأيسر والأيمن";
+"ui.clipboard.empty.tutorial.step3.body" = "اختر صورة للتطبيقات مثل Word. واختر ملف عند اللصق في Finder أو المجلدات.";
 "ui.clipboard.empty.search.title" = "لا توجد عناصر في الحافظة تطابق بحثك";
 "ui.clipboard.empty.search.hint" = "جرّب كلمة رئيسية مختلفة أو امسح البحث لترى سجلك الكامل.";
 "ui.clipboard.item.empty" = "(نص فارغ)";
@@ -40,6 +49,7 @@
 "ui.menu.actions" = "الإجراءات";
 "ui.button.quit" = "قم بإنهاء MacBar";
 "ui.button.cancel" = "إلغاء";
+"ui.button.gotIt" = "حسنًا";
 "ui.language.menu" = "اللغة";
 "ui.language.system" = "النظام";
 "ui.language.followSystem" = "متابعة النظام (%@)";
@@ -95,3 +105,5 @@
 "feedback.update.available" = "الإصدار %@ متاح.";
 "feedback.update.upToDate" = "MacBar محدث بالفعل.";
 "feedback.update.failed" = "تعذر التحقق من التحديثات الآن.";
+"ui.clipboard.tip.imageCopyMode.title" = "نصيحة لنسخ الصور";
+"ui.clipboard.tip.imageCopyMode.message" = "استخدم السهمين الأيسر والأيمن للتبديل بين الصورة والملف. اختر ملف عند اللصق في Finder أو المجلدات، واختر صورة عند اللصق في تطبيقات مثل Word.";

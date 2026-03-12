@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "L'historique du Presse-papiers est vide";
 "ui.clipboard.empty.hint.monitoringOn" = "Copiez du texte, des images ou des fichiers du Finder et MacBar les capturera automatiquement.";
 "ui.clipboard.empty.hint.monitoringOff" = "La surveillance est suspendue. Reprenez la surveillance pour capturer de nouveaux éléments du presse-papiers.";
+"ui.clipboard.empty.tutorial.title" = "Commencez ici";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar est prêt. Le premier élément que vous copiez apparaîtra ici automatiquement.";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "La surveillance du presse-papiers est en pause. Réactivez-la d’abord, puis vos éléments copiés apparaîtront ici.";
+"ui.clipboard.empty.tutorial.step1.title" = "Copiez du texte, des images ou des fichiers du Finder";
+"ui.clipboard.empty.tutorial.step1.body" = "MacBar capture automatiquement les nouveaux éléments du presse-papiers tant que la surveillance est active.";
+"ui.clipboard.empty.tutorial.step2.title" = "Appuyez sur Entrée ou double-cliquez pour recopier";
+"ui.clipboard.empty.tutorial.step2.body" = "Sélectionnez un élément dans la liste puis réutilisez-le immédiatement dans votre prochaine app.";
+"ui.clipboard.empty.tutorial.step3.title" = "Pour les images, utilisez les flèches gauche et droite";
+"ui.clipboard.empty.tutorial.step3.body" = "Choisissez Image pour des apps comme Word. Choisissez Fichier pour coller dans Finder ou dans des dossiers.";
 "ui.clipboard.empty.search.title" = "Aucun élément du presse-papier ne correspond à votre recherche";
 "ui.clipboard.empty.search.hint" = "Essayez un autre mot-clé ou effacez la recherche pour voir votre historique complet.";
 "ui.clipboard.item.empty" = "(Texte vide)";
@@ -40,6 +49,7 @@
 "ui.menu.actions" = "Actions";
 "ui.button.quit" = "Quitter MacBar";
 "ui.button.cancel" = "Annuler";
+"ui.button.gotIt" = "Compris";
 "ui.language.menu" = "Langue";
 "ui.language.system" = "Système";
 "ui.language.followSystem" = "Suivre le système (%@)";
@@ -95,3 +105,5 @@
 "feedback.update.available" = "La version %@ est disponible.";
 "feedback.update.upToDate" = "MacBar est déjà à jour.";
 "feedback.update.failed" = "Impossible de vérifier les mises à jour pour le moment.";
+"ui.clipboard.tip.imageCopyMode.title" = "Astuce de copie d’image";
+"ui.clipboard.tip.imageCopyMode.message" = "Utilisez les flèches gauche et droite pour basculer entre image et fichier. Choisissez Fichier pour coller dans Finder ou dans des dossiers, et Image pour coller dans des apps comme Word.";

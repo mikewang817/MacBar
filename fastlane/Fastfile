@@ -28,6 +28,14 @@ def require_env!(key)
   value
 end
 
+def app_store_connect_api_key_from_env
+  app_store_connect_api_key(
+    key_id: require_env!("APP_STORE_CONNECT_KEY_ID"),
+    issuer_id: require_env!("APP_STORE_CONNECT_ISSUER_ID"),
+    key_filepath: require_env!("APP_STORE_CONNECT_KEY_FILE")
+  )
+end
+
 platform :mac do
   before_all do
     ENV["FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT"] ||= "120"
@@ -56,9 +64,11 @@ platform :mac do
     version = options[:version]
     UI.user_error!("Pass version: bundle exec fastlane mac bump_version version:1.0.1") if version.to_s.strip.empty?
 
+    key = app_store_connect_api_key_from_env
     build = (options[:build] || latest_testflight_build_number(
       app_identifier: APP_IDENTIFIER,
       platform: "osx",
+      api_key: key,
       initial_build_number: 0
     ) + 1).to_s
 
@@ -90,11 +100,7 @@ platform :mac do
 
   desc "Sync Mac App Store certificates and profiles via match"
   lane :sync_signing do |options|
-    key = app_store_connect_api_key(
-      key_id: require_env!("APP_STORE_CONNECT_KEY_ID"),
-      issuer_id: require_env!("APP_STORE_CONNECT_ISSUER_ID"),
-      key_filepath: require_env!("APP_STORE_CONNECT_KEY_FILE")
-    )
+    key = app_store_connect_api_key_from_env
 
     match(
       api_key: key,
@@ -131,11 +137,7 @@ platform :mac do
 
   desc "Upload the packaged macOS build to App Store Connect"
   lane :upload_app_store do |options|
-    key = app_store_connect_api_key(
-      key_id: require_env!("APP_STORE_CONNECT_KEY_ID"),
-      issuer_id: require_env!("APP_STORE_CONNECT_ISSUER_ID"),
-      key_filepath: require_env!("APP_STORE_CONNECT_KEY_FILE")
-    )
+    key = app_store_connect_api_key_from_env
 
     pkg_path = options[:pkg_path] || Actions.lane_context[:MACBAR_APPSTORE_PKG_PATH] || APPSTORE_PKG_PATH
 
@@ -146,6 +148,8 @@ platform :mac do
       skip_metadata: true,
       skip_screenshots: true,
       submit_for_review: false,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
       force: true
     )
   end

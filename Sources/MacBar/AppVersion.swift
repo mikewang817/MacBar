@@ -5,7 +5,7 @@ enum AppVersion {
     // through Bundle.main, so keep a source-controlled fallback for in-app display
     // and update checks. Release packaging still copies Sources/MacBar/Info.plist.
     private static let fallbackShortVersion = "1.0.0"
-    private static let fallbackBuildNumber = "1"
+    private static let fallbackBuildNumber = "2"
 
     static var shortVersion: String {
         bundleValue(for: "CFBundleShortVersionString") ?? fallbackShortVersion

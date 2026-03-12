@@ -1244,10 +1244,6 @@ struct MenuBarRootView: View {
                     }
                 }
 
-                Text(AppVersion.displayString)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-
                 Button(store.localized("ui.button.quit")) {
                     NSApplication.shared.terminate(nil)
                 }

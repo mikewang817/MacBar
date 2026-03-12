@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "Der Verlauf der Zwischenablage ist leer";
 "ui.clipboard.empty.hint.monitoringOn" = "Kopieren Sie Text, Bilder oder Finder-Dateien und MacBar erfasst sie automatisch.";
 "ui.clipboard.empty.hint.monitoringOff" = "Überwachung ist angehalten. Setzen Sie die Überwachung fort, um neue Elemente in der Zwischenablage zu erfassen.";
+"ui.clipboard.empty.tutorial.title" = "So starten Sie";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar ist bereit. Das erste kopierte Element erscheint hier automatisch.";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "Die Zwischenablageüberwachung ist pausiert. Aktivieren Sie sie zuerst, dann erscheinen Ihre kopierten Elemente hier.";
+"ui.clipboard.empty.tutorial.step1.title" = "Text, Bilder oder Finder-Dateien kopieren";
+"ui.clipboard.empty.tutorial.step1.body" = "Solange die Überwachung aktiv ist, erfasst MacBar neue Zwischenablageeinträge automatisch.";
+"ui.clipboard.empty.tutorial.step2.title" = "Mit Enter oder Doppelklick erneut kopieren";
+"ui.clipboard.empty.tutorial.step2.body" = "Wählen Sie einen Eintrag in der Liste aus und verwenden Sie ihn sofort erneut in Ihrer nächsten App.";
+"ui.clipboard.empty.tutorial.step3.title" = "Bei Bildern mit den Pfeiltasten links und rechts wechseln";
+"ui.clipboard.empty.tutorial.step3.body" = "Wählen Sie Bild für Apps wie Word. Wählen Sie Datei beim Einfügen in Finder oder Ordner.";
 "ui.clipboard.empty.search.title" = "Keine Zwischenablageelemente entsprechen Ihrer Suche";
 "ui.clipboard.empty.search.hint" = "Versuchen Sie es mit einem anderen Schlüsselwort oder löschen Sie die Suche, um Ihren vollständigen Verlauf anzuzeigen.";
 "ui.clipboard.item.empty" = "(Leerer Text)";
@@ -40,6 +49,7 @@
 "ui.menu.actions" = "Aktionen";
 "ui.button.quit" = "MacBar beenden";
 "ui.button.cancel" = "Abbrechen";
+"ui.button.gotIt" = "Verstanden";
 "ui.language.menu" = "Sprache";
 "ui.language.system" = "System";
 "ui.language.followSystem" = "System folgen (%@)";
@@ -95,3 +105,5 @@
 "feedback.update.available" = "Version %@ ist verfugbar.";
 "feedback.update.upToDate" = "MacBar ist bereits auf dem neuesten Stand.";
 "feedback.update.failed" = "Updates konnen gerade nicht gepruft werden.";
+"ui.clipboard.tip.imageCopyMode.title" = "Tipp zum Kopieren von Bildern";
+"ui.clipboard.tip.imageCopyMode.message" = "Verwenden Sie die Pfeiltasten links und rechts, um zwischen Bild und Datei zu wechseln. Wählen Sie Datei zum Einfügen in Finder oder Ordner, und Bild zum Einfügen in Apps wie Word.";

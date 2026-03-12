@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "클립보드 기록이 비어 있습니다.";
 "ui.clipboard.empty.hint.monitoringOn" = "텍스트, 이미지 또는 Finder 파일을 복사하면 MacBar가 자동으로 캡처합니다.";
 "ui.clipboard.empty.hint.monitoringOff" = "모니터링이 일시 중지되었습니다. 새 클립보드 항목을 캡처하려면 모니터링을 재개하세요.";
+"ui.clipboard.empty.tutorial.title" = "여기서 시작하세요";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar가 준비되었습니다. 처음 복사하는 항목이 여기에 자동으로 나타납니다.";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "클립보드 모니터링이 일시 중지되었습니다. 먼저 다시 켜면 복사한 항목이 여기에 나타납니다.";
+"ui.clipboard.empty.tutorial.step1.title" = "텍스트, 이미지 또는 Finder 파일 복사";
+"ui.clipboard.empty.tutorial.step1.body" = "모니터링이 켜져 있으면 MacBar가 새 클립보드 항목을 자동으로 기록합니다.";
+"ui.clipboard.empty.tutorial.step2.title" = "Enter 또는 더블클릭으로 다시 복사";
+"ui.clipboard.empty.tutorial.step2.body" = "목록에서 항목을 선택하면 다음 앱에서 바로 다시 사용할 수 있습니다.";
+"ui.clipboard.empty.tutorial.step3.title" = "이미지는 좌우 화살표로 전환";
+"ui.clipboard.empty.tutorial.step3.body" = "Word 같은 앱에 붙여넣을 때는 이미지, Finder나 폴더에 붙여넣을 때는 파일을 선택하세요.";
 "ui.clipboard.empty.search.title" = "검색어와 일치하는 클립보드 항목이 없습니다.";
 "ui.clipboard.empty.search.hint" = "다른 키워드를 사용하거나 검색을 지워 전체 기록을 확인하세요.";
 "ui.clipboard.item.empty" = "(빈 텍스트)";
@@ -40,6 +49,7 @@
 "ui.menu.actions" = "행동";
 "ui.button.quit" = "맥바를 그만둬라";
 "ui.button.cancel" = "취소";
+"ui.button.gotIt" = "알겠습니다";
 "ui.language.menu" = "언어";
 "ui.language.system" = "시스템";
 "ui.language.followSystem" = "팔로우 시스템(%@)";
@@ -95,3 +105,5 @@
 "feedback.update.available" = "버전 %@를 사용할 수 있습니다.";
 "feedback.update.upToDate" = "MacBar가 이미 최신 버전입니다.";
 "feedback.update.failed" = "지금은 업데이트를 확인할 수 없습니다.";
+"ui.clipboard.tip.imageCopyMode.title" = "이미지 복사 팁";
+"ui.clipboard.tip.imageCopyMode.message" = "좌우 화살표 키로 이미지와 파일 사이를 전환하세요. Finder나 폴더에 붙여넣을 때는 파일을, Word 같은 앱에 붙여넣을 때는 이미지를 선택하세요.";

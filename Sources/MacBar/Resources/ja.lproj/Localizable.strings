@@ -4,6 +4,15 @@
 "ui.clipboard.empty.title" = "クリップボードの履歴が空です";
 "ui.clipboard.empty.hint.monitoringOn" = "テキスト、画像、または Finder ファイルをコピーすると、MacBar がそれらを自動的にキャプチャします。";
 "ui.clipboard.empty.hint.monitoringOff" = "監視は一時停止されています。監視を再開して、新しいクリップボード項目をキャプチャします。";
+"ui.clipboard.empty.tutorial.title" = "ここから始めましょう";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOn" = "MacBar の準備はできています。最初にコピーした項目がここに自動で表示されます。";
+"ui.clipboard.empty.tutorial.subtitle.monitoringOff" = "クリップボード監視は一時停止中です。先に再開すると、コピーした項目がここに表示されます。";
+"ui.clipboard.empty.tutorial.step1.title" = "テキスト、画像、Finder ファイルをコピー";
+"ui.clipboard.empty.tutorial.step1.body" = "監視がオンなら、MacBar が新しいクリップボード項目を自動的に記録します。";
+"ui.clipboard.empty.tutorial.step2.title" = "Enter またはダブルクリックで再コピー";
+"ui.clipboard.empty.tutorial.step2.body" = "リスト内の項目を選択すれば、次のアプリですぐに再利用できます。";
+"ui.clipboard.empty.tutorial.step3.title" = "画像は左右の矢印キーで切り替え";
+"ui.clipboard.empty.tutorial.step3.body" = "Word などのアプリには画像を選び、Finder やフォルダへ貼り付けるときはファイルを選びます。";
 "ui.clipboard.empty.search.title" = "検索に一致するクリップボード項目はありません";
 "ui.clipboard.empty.search.hint" = "完全な履歴を表示するには、別のキーワードを試すか、検索をクリアしてください。";
 "ui.clipboard.item.empty" = "(空のテキスト)";
@@ -40,6 +49,7 @@
 "ui.menu.actions" = "アクション";
 "ui.button.quit" = "MacBar を終了";
 "ui.button.cancel" = "キャンセル";
+"ui.button.gotIt" = "了解";
 "ui.language.menu" = "言語";
 "ui.language.system" = "システム";
 "ui.language.followSystem" = "システムをフォロー (%@)";
@@ -95,3 +105,5 @@
 "feedback.update.available" = "バージョン %@ を利用できます。";
 "feedback.update.upToDate" = "MacBar は最新です。";
 "feedback.update.failed" = "現在、更新を確認できません。";
+"ui.clipboard.tip.imageCopyMode.title" = "画像コピーのヒント";
+"ui.clipboard.tip.imageCopyMode.message" = "左右の矢印キーで画像とファイルを切り替えます。Finder やフォルダに貼り付けるときはファイル、Word などのアプリに貼り付けるときは画像を選んでください。";
