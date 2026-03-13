@@ -62,8 +62,6 @@ docs/
   统一版本号入口；优先读 `Bundle.main`，读不到时回退到源码里的版本号
 - `Sources/MacBar/Services/LocalizationManager.swift`
   语言选择与本地化解析
-- `Sources/MacBar/Services/UpdateService.swift`
-  GitHub Releases 更新检查与安装
 - `Sources/MacBar/Views/MenuBarRootView.swift`
   主 UI，列表、预览、快捷键处理都在这里
 
@@ -82,8 +80,6 @@ docs/
 - 搜索不仅搜文本，也搜图片 OCR 文本、文件名和文件完整路径；相关修改要覆盖这三类条目。
 - 复制任意条目后默认会关闭面板，并尽量回到打开前的前台应用；修改复制流时要同时检查 `MenuBarRootView` 的关闭回调和 `AppDelegate` 的前台应用恢复逻辑。
 - `Esc` 行为是两段式：搜索框有内容时清空搜索，否则关闭面板；改动搜索交互时不要破坏这条约定。
-- 更新检查不是只在启动时触发：启动后会强制检查一次，之后每次打开面板都会累计次数；当前达到 20 次时会再次检查，避免长时间不重启时错过新 release。
-- 更新服务默认优先访问 GitHub Releases；若 GitHub 不可达，会回退到 `macbar.app` 的官网更新信息与下载地址。修改 README、官网或隐私描述时，需要与当前实现保持一致。
 
 ## 本地化规则
 
@@ -138,13 +134,6 @@ npx --yes wrangler pages deploy website
 ```
 
 - 除非用户明确要求安装全局 `wrangler`，否则优先使用上述 `npx` 方式，不要依赖本机全局安装。
-- 每次完成 `gh release create ...` 之后，必须先询问用户：是否要将新版本的 MacBar 同步到站点。
-- 只有在用户明确同意后，AI 才执行 `./scripts/sync_pages_release.sh` 并完成站点同步。
-- 该脚本会自动读取最新 GitHub Release，在本地分支 `codex/website-local` 更新 `website/downloads/`、`/download/latest` 和 `update.json`，然后部署到 Cloudflare Pages。
-- 该脚本只会在本地提交网站分支，不会 push `codex/website-local` 到 GitHub。
-- 运行脚本前，需确保本机已登录 Wrangler，或环境中存在可用的 `CLOUDFLARE_API_TOKEN`。
-
-## 发布 Release 流程
 
 ## App Store 与证书管理约定
 
@@ -168,99 +157,16 @@ bundle exec fastlane mac upload_app_store
 bundle exec fastlane mac release_app_store
 ```
 
-每次发布新版本按以下步骤执行：
+每次发布新版本时：
 
-### 1. 修改版本号
-
-编辑 `Sources/MacBar/Info.plist`，同时递增两个字段：
-- `CFBundleVersion`：整数，每次 +1
-- `CFBundleShortVersionString`：语义版本，如 `1.0.8`
-
-同时同步更新 `Sources/MacBar/AppVersion.swift` 里的 fallback 值。原因是 SwiftPM 运行时的 `Bundle.main` 不一定带上自定义 `Info.plist`，应用内版本显示和更新检查会回退到这里。
-
-提交并推送：
-```bash
-git branch --show-current
-git log --oneline origin/master..HEAD
-git add Sources/MacBar/Info.plist Sources/MacBar/AppVersion.swift
-git commit -m "chore: bump version to X.X.X"
-git push
-```
-
-> **Push 前检查**：确认当前不在 `codex/website-local`，并且待推送提交里不包含网站相关内容。
-
-### 2. 构建 Archive
-
-```bash
-xcodebuild archive \
-  -scheme MacBar \
-  -configuration Release \
-  -destination "generic/platform=macOS" \
-  -archivePath /tmp/MacBar.xcarchive \
-  SKIP_INSTALL=NO
-```
-
-### 3. 组装 App Bundle
-
-```bash
-VERSION="X.X.X"
-APP_DIR="/tmp/MacBarBuild/MacBar.app/Contents"
-DERIVED=$(ls -d ~/Library/Developer/Xcode/DerivedData/MacBar-*/Build/Intermediates.noindex/ArchiveIntermediates/MacBar/BuildProductsPath/Release | head -1)
-
-rm -rf /tmp/MacBarBuild && mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
-
-# 可执行文件
-cp /tmp/MacBar.xcarchive/Products/usr/local/bin/MacBar "$APP_DIR/MacOS/MacBar"
-
-# Info.plist
-cp Sources/MacBar/Info.plist "$APP_DIR/Info.plist"
-
-# 编译图标和资源（生成 Assets.car）
-xcrun actool \
-  --compile "$APP_DIR/Resources" \
-  --platform macosx \
-  --minimum-deployment-target 14.0 \
-  --app-icon AppIcon \
-  --output-partial-info-plist /tmp/actool_partial.plist \
-  Sources/MacBar/Resources/Assets.xcassets
-
-# SPM 资源包（本地化字符串等，必须包含）
-ditto "$DERIVED/MacBar_MacBar.bundle" "$APP_DIR/Resources/MacBar_MacBar.bundle"
-
-# 签名
-codesign --force --deep --sign - /tmp/MacBarBuild/MacBar.app
-```
-
-> **注意**：`MacBar_MacBar.bundle` 必须复制，缺失会导致所有本地化字符串显示为 key。
-
-### 4. 打包并发布到 GitHub
-
-```bash
-cd /tmp/MacBarBuild
-ditto -c -k --keepParent MacBar.app "MacBar-v${VERSION}.zip"
-gh release create "v${VERSION}" "MacBar-v${VERSION}.zip" \
-  --title "MacBar v${VERSION}" \
-  --notes "## v${VERSION}
-
-- ..."
-```
-
-### 5. 询问是否同步 Cloudflare 下载
-
-发布 GitHub Release 后，先询问用户是否要把新版本同步到站点。只有在用户明确确认后，才执行下一步。
-
-### 6. 用户确认后同步 Cloudflare 下载
-
-```bash
-cd "$(git rev-parse --show-toplevel)"
-./scripts/sync_pages_release.sh
-```
-
-> **注意**：这个脚本会更新本地分支 `codex/website-local` 并部署 Pages，但不会 push 该分支到 GitHub；执行前必须先得到用户确认。
+- 先更新 `Sources/MacBar/Info.plist` 和 `Sources/MacBar/AppVersion.swift` 的版本号。
+- 提交并推送应用代码前，先确认当前分支不是 `codex/website-local`。
+- 通过 fastlane 完成签名、构建和上传，不再通过 GitHub Releases 分发安装包。
+- 如果官网需要同步文案或链接，切到 `codex/website-local` 单独处理并用 Wrangler 部署。
 
 ## 交付前检查
 
 - 先跑 `swift build`
 - 如果改了本地化 key，检查 7 个受支持语言文件是否都已补齐
-- 如果改了热键、面板、OCR、复制后返回原应用、更新流程，优先在 Xcode 中做一次手动验证
+- 如果改了热键、面板、OCR、复制后返回原应用或 App Store 发布流程，优先在 Xcode 中做一次手动验证
 - 如仓库里存在与你任务无关的脏改动，不要回滚它们
