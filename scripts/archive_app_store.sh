@@ -64,7 +64,7 @@ if [[ -z "$PROFILE_PATH" ]]; then
     app_identifier="$(
       /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$PROFILE_PLIST" 2>/dev/null || true
     )"
-    if [[ "$app_identifier" == "P69755L5ZN.app.macbar.macbar" ]]; then
+    if [[ "${app_identifier#*.}" == "app.macbar.macbar" ]]; then
       PROFILE_PATH="$candidate"
       break
     fi
@@ -106,7 +106,7 @@ PROFILE_UUID="$(
   /usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST"
 )"
 
-if [[ "$APP_IDENTIFIER" != "P69755L5ZN.app.macbar.macbar" ]]; then
+if [[ "${APP_IDENTIFIER#*.}" != "app.macbar.macbar" ]]; then
   echo "Provisioning profile app identifier mismatch: $APP_IDENTIFIER" >&2
   exit 1
 fi

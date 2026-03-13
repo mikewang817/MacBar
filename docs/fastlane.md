@@ -54,8 +54,8 @@ Optional:
 export MATCH_GIT_BRANCH="main"
 export MATCH_READONLY="1"
 export FASTLANE_APPLE_ID="your-apple-id@example.com"
-export FASTLANE_TEAM_ID="P69755L5ZN"
-export FASTLANE_ITC_TEAM_ID="22728118466"
+export FASTLANE_TEAM_ID="YOUR_TEAM_ID"
+export FASTLANE_ITC_TEAM_ID="YOUR_APP_STORE_CONNECT_TEAM_ID"
 ```
 
 ## Lanes

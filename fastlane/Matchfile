@@ -4,5 +4,5 @@ storage_mode("git")
 type("appstore")
 app_identifier(["app.macbar.macbar"])
 username(ENV["FASTLANE_APPLE_ID"]) if ENV["FASTLANE_APPLE_ID"]
-team_id(ENV.fetch("FASTLANE_TEAM_ID", "P69755L5ZN"))
+team_id(ENV.fetch("FASTLANE_TEAM_ID", "YOUR_TEAM_ID"))
 readonly(ENV["MATCH_READONLY"] == "1")

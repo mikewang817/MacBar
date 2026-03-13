@@ -9,7 +9,6 @@ ROOT = File.expand_path("..", __dir__)
 PROJECT_PATH = File.join(ROOT, "MacBar.xcodeproj")
 SCHEME = "MacBar"
 APP_IDENTIFIER = "app.macbar.macbar"
-TEAM_ID = "P69755L5ZN"
 INFO_PLIST_PATH = File.join(ROOT, "Sources/MacBar/Info.plist")
 APP_VERSION_SWIFT_PATH = File.join(ROOT, "Sources/MacBar/AppVersion.swift")
 ARCHIVE_SCRIPT_PATH = File.join(ROOT, "scripts/archive_app_store.sh")
@@ -54,6 +53,8 @@ platform :mac do
     UI.user_error!("Missing API key file at #{key_file}") unless File.exist?(key_file)
     require_env!("APP_STORE_CONNECT_KEY_ID")
     require_env!("APP_STORE_CONNECT_ISSUER_ID")
+    require_env!("FASTLANE_TEAM_ID")
+    require_env!("FASTLANE_ITC_TEAM_ID")
     require_env!("MATCH_GIT_URL")
     require_env!("MATCH_PASSWORD")
     UI.success("Fastlane environment looks ready")
@@ -107,7 +108,7 @@ platform :mac do
       type: options[:type] || "appstore",
       readonly: options.fetch(:readonly, false),
       app_identifier: [APP_IDENTIFIER],
-      team_id: TEAM_ID,
+      team_id: require_env!("FASTLANE_TEAM_ID"),
       git_branch: options[:git_branch] || ENV["MATCH_GIT_BRANCH"]
     )
   end
