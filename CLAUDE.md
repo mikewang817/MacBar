@@ -1,16 +1,18 @@
 # MacBar Claude Guide
 
-> 本文件应与 `AGENTS.md` 保持同一套规则与流程；修改其中一份时，另一份也要同步更新。
+> 本文件应与 `AGENTS.md` 保持一致。修改其中一份时，另一份也要同步更新。
 
 ## 项目概览
 
 - 项目类型：macOS 菜单栏剪贴板管理器
 - 技术栈：Swift 6.2 + SwiftUI + AppKit + Vision
-- 构建方式：Swift Package Manager，仓库内没有 `.xcodeproj`
+- 构建方式：Swift Package Manager + Xcode 工程
+- Xcode 工程来源：`MacBar.xcodeproj` 由 `project.yml` 生成
 - 平台要求：macOS 14+
-- 依赖策略：无第三方依赖，优先使用 Apple 原生框架
+- 分发方向：当前主线默认面向 App Store
+- 更新策略：当前主线默认不启用外部更新，不再依赖 GitHub Releases 或官网安装包
 
-应用入口是 `Sources/MacBar/MacBarApp.swift`，实际窗口与热键管理在 `Sources/MacBar/AppDelegate.swift`。
+应用入口在 `Sources/MacBar/MacBarApp.swift`，菜单栏窗口和设置窗口逻辑在 `Sources/MacBar/AppDelegate.swift`。
 
 ## 常用命令
 
@@ -19,106 +21,110 @@
 ```bash
 swift build
 swift run MacBar
-open Package.swift
+open MacBar.xcodeproj
 ```
 
-说明：
+补充：
 
-- `swift build` 适合静态检查和编译验证
-- `swift run MacBar` 可做基础运行验证，但部分能力依赖 app bundle
-- 涉及面板行为、菜单栏、Vision OCR、资源加载时，优先用 Xcode 打开 `Package.swift` 运行
+- 修改 `project.yml` 后，执行 `xcodegen generate`
+- 需要更接近真实运行环境时，优先从 Xcode 跑 `MacBar.xcodeproj`
+- App Store 相关流程优先使用 `fastlane`
 
 ## 目录结构
 
 ```text
 Package.swift
+project.yml
+MacBar.xcodeproj/
 Sources/MacBar/
   MacBarApp.swift
   AppDelegate.swift
+  MacBar.swift
   Models/
   Services/
   Stores/
   Views/
   Resources/
+fastlane/
 scripts/
 README.md
-README.zh-Hans.md
-docs/
+AGENTS.md
+CLAUDE.md
 ```
 
-重点文件：
+关键文件：
 
 - `Sources/MacBar/Stores/MacBarStore.swift`
-  中央状态源，剪贴板历史、置顶、OCR 缓存、更新状态都在这里
+  中央状态源，剪贴板历史、置顶、OCR 缓存、复制语义、更新状态都在这里
 - `Sources/MacBar/Services/ClipboardMonitor.swift`
-  剪贴板轮询与写回逻辑
+  剪贴板采集与写回
 - `Sources/MacBar/Services/ClipboardImageStore.swift`
-  剪贴板图片落盘与读取缓存；历史里的图片不再直接长期塞进 `UserDefaults`
+  图片持久化与缓存读取
 - `Sources/MacBar/Services/AirDropService.swift`
-  统一封装文件和图片的隔空投送动作，基于 `NSSharingService(named: .sendViaAirDrop)`
+  文件和图片的隔空投送
 - `Sources/MacBar/Services/OCRService.swift`
-  图片 OCR，基于 Vision，完全本地执行；输入是图片二进制数据，识别在后台线程完成
-- `Sources/MacBar/AppVersion.swift`
-  统一版本号入口；优先读 `Bundle.main`，读不到时回退到源码里的版本号
-- `Sources/MacBar/Services/LocalizationManager.swift`
-  语言选择与本地化解析
+  本地 OCR
 - `Sources/MacBar/Views/MenuBarRootView.swift`
-  主 UI，列表、预览、快捷键处理都在这里
+  主列表、预览区、键盘交互
+- `Sources/MacBar/Views/SettingsRootView.swift`
+  独立设置窗口
+- `Sources/MacBar/MacBar.swift`
+  `BuildInfo` 所在位置；当前主线默认 `isAppStoreDistribution = true`
+- `project.yml`
+  XcodeGen 配置源
 
-## 架构与约束
+## 架构与行为约束
 
-- 状态管理采用单一 `MacBarStore`，UI 变更优先通过 store 驱动，不要在 View 里复制业务状态。
-- 并发边界以 `@MainActor` 为主。修改 store、AppDelegate、UI 状态时不要绕开主线程约束。
-- 这是菜单栏应用，窗口使用 `NSPanel`，不要随意改成常规 `NSWindow`。
-- 全局热键使用 Carbon `RegisterEventHotKey`。若修改热键，需同时检查注册逻辑与按键匹配逻辑。
-- 剪贴板捕获顺序要保持为：`文件 -> 文本 -> 图片`。复制 Finder 文件时剪贴板通常也带文本表示，顺序改错会产生行为回归。
-- 图片 OCR 结果只缓存到内存中的 `clipboardOCRCache`，删除或清空条目时要同步清理缓存。
-- 剪贴板历史中的图片二进制数据优先落到 `Application Support/MacBar/ClipboardImages/`，持久化到 `UserDefaults` 的历史只保留元数据；修改图片存储时要同时处理迁移、删除和孤儿文件清理。
-- 图片展示与复制优先走 `MacBarStore.clipboardImage(...)` / `clipboardImageData(...)`，不要在 View 里反复直接 `NSImage(data:)` 解码。
-- 文件和图片的隔空投送动作统一走 `AirDropService`；不要在多个 View 里各自直接拼 `NSSharingService` 调用。
-- OCR 触发采用队列式调度，避免为整段历史同时启动大量 Vision 请求；如果改动 OCR 入口，要同时检查去重、优先级和面板关闭后的行为。
-- 搜索不仅搜文本，也搜图片 OCR 文本、文件名和文件完整路径；相关修改要覆盖这三类条目。
-- 复制任意条目后默认会关闭面板，并尽量回到打开前的前台应用；修改复制流时要同时检查 `MenuBarRootView` 的关闭回调和 `AppDelegate` 的前台应用恢复逻辑。
-- `Esc` 行为是两段式：搜索框有内容时清空搜索，否则关闭面板；改动搜索交互时不要破坏这条约定。
+- 状态管理以 `MacBarStore` 为中心，不要在 SwiftUI View 里复制业务状态。
+- 菜单栏主界面使用 `NSPanel`，设置使用独立 `NSWindow`。不要恢复旧的“菜单栏内嵌设置页”结构。
+- 全局热键使用 Carbon `RegisterEventHotKey`，当前约定是 `⇧⌘M`。
+- 剪贴板捕获顺序保持：`文件 -> 文本 -> 图片`。
+- 搜索需要覆盖：文本内容、OCR 文本、文件名、完整路径。
+- 图片缓存优先通过 `MacBarStore.clipboardImage(...)` / `clipboardImageData(...)` 读取，不要在 View 层反复解码。
+- 图片项当前有两种复制语义：
+  - `Image`：适合粘贴到 Word、Notion、聊天工具、编辑器
+  - `File`：适合粘贴到 Finder、文件夹、文件型工作流
+- 修改图片复制逻辑时，要同时检查：
+  - 列表回车复制
+  - 双击复制
+  - 左右箭头切换 `Image / File`
+  - 预览区 `Copy as File`
+- 置顶项快捷键必须稳定分配，当前范围是 `⌘B` 到 `⌘Z`，不能再使用 `⌘A`。
+- 复制条目后默认会关闭面板，并尽量恢复到原前台应用；变更复制行为时要同时检查面板关闭逻辑。
+- `Esc` 规则：先清空搜索，再关闭面板。
+- 预览区动作按钮当前约定是纯文字按钮，并保持一致高度。
+- App Store 主线默认不启用外部更新；除非用户明确要求，不要恢复 GitHub / 官网更新检查。
 
 ## 本地化规则
 
-- 用户可见字符串不要直接硬编码，除应用名 `MacBar` 和系统按钮 `OK` 外，统一走 `store.localized(...)` 或 `localizationManager.localized(...)`。
-- 快捷键、按键名、菜单动作等文案要符合目标语言的真实使用习惯，不要机械直译；例如中文场景优先写 `Enter`、`CMD + 删除键`，而不是把按键名称字面翻成“输入”“命令删除”。
-- 快捷键提示目前由 `MacBarStore` 按语言风格动态生成；如果调整这类文案，优先改生成逻辑，不要只改某一种语言的整句翻译。
-- MacBar 当前只维护 7 种界面语言：`en`、`zh-Hans`、`de`、`fr`、`ja`、`ko`、`ar`；不要重新引入其他 `.lproj` 目录，除非用户明确要求扩语种。
-- 新增文案时，必须同步更新以下 7 个文件：
-  - `Sources/MacBar/Resources/en.lproj/Localizable.strings`
-  - `Sources/MacBar/Resources/zh-Hans.lproj/Localizable.strings`
-  - `Sources/MacBar/Resources/de.lproj/Localizable.strings`
-  - `Sources/MacBar/Resources/fr.lproj/Localizable.strings`
-  - `Sources/MacBar/Resources/ja.lproj/Localizable.strings`
-  - `Sources/MacBar/Resources/ko.lproj/Localizable.strings`
-  - `Sources/MacBar/Resources/ar.lproj/Localizable.strings`
-- 不要再使用 `scripts/generate_localizations.py` 维护 UI 多语言；当前约定是直接维护上述语言文件。
-- 语言列表是产品定义，不再直接暴露 `Bundle.module.localizations` 的全部结果；设置页中的语言选项应与上述 7 种语言保持一致，并支持“跟随系统”。
+- 用户可见文案不要硬编码，统一走 `store.localized(...)` 或 `localizationManager.localized(...)`。
+- 当前维护的界面语言只有 7 种：
+  - `en`
+  - `zh-Hans`
+  - `de`
+  - `fr`
+  - `ja`
+  - `ko`
+  - `ar`
+- 新增文案时，必须同步更新以上 7 个 `Localizable.strings`。
+- 不要重新引入其他 `.lproj`，除非用户明确要求扩语种。
+- 不要恢复旧的自动本地化生成脚本流程；当前约定是直接维护字符串文件。
 
-## 修改建议
+## Git、网站与公开仓库规则
 
-- 做功能变更时，先判断影响的是 `Store`、`Service` 还是 `View`，不要把业务逻辑直接塞进 SwiftUI 视图层。
-- 涉及文件条目展示时，注意当前 UI 约定是“文件名 + 目录路径”双行展示，悬停显示完整路径。
-- 涉及文本条目展示时，注意当前列表约定是“首行标题 + 次行摘要/相对时间”双行展示。
-- 涉及图片条目展示时，优先复用 store 提供的缓存读取接口，并继续保持列表与预览共用同一份图片来源。
-- 涉及文件或图片条目操作按钮时，注意预览区和列表行现在都支持隔空投送，交互应保持一致。
-- 涉及底部快捷键提示时，注意当前不是直接显示本地化整句，而是由 `MacBarStore.clipboardCopyShortcutHint()` / `clipboardDeleteShortcutHint()` 根据语言习惯生成。
-- 涉及语言切换时，注意当前入口在设置页，不在底部工具栏；修改语言相关 UI 时不要恢复成独立 footer 菜单。
-- 涉及预览面板尺寸时，要同步考虑 `MenuBarRootView.preferredPanelSize` 和 `AppDelegate` 的 panel size 更新逻辑。
-- 涉及资源或本地化包时，确认 `Package.swift` 的 `resources: [.process("Resources")]` 仍然满足需求。
-- 当前版本没有配置导入/导出功能，除非用户明确要求，否则不要重新引入相关入口或模型。
-- 不要引入网络库、数据库、统计 SDK 或其他第三方依赖，除非用户明确要求并接受架构变化。
+- `master` 只保留应用主线代码与必要公开文档。
+- `Marketing/` 默认只保留在本地，不要加入 `master`，除非用户明确要求。
+- 不要把营销素材、短视频、平台文案、生成图、临时脚本推到 `master`。
+- 对公开 GitHub 仓库，避免新增内部过程文档或临时 `docs/` 资产；若不是用户明确要求，公开说明优先收敛到 `README.md`。
+- 网站相关改动只允许放在本地分支 `codex/website-local`。
+- `codex/website-local` 不得 push 到 GitHub，不得合并回 `master`，除非用户明确要求。
+- 网站部署默认使用：
 
-## Git 与网站分支规则
+```bash
+npx --yes wrangler pages deploy website
+```
 
-- 网站落地页和 Cloudflare Pages 部署相关改动只允许保留在本地分支 `codex/website-local`。
-- `codex/website-local` 是本地专用分支，不得 push 到 GitHub，不得合并回 `master`，也不要 cherry-pick 其中提交，除非用户明确要求。
-- `master` 默认只保留应用主线代码与文档，不应包含 `website/`、`wrangler.jsonc`、Pages 下载包等网站发布内容。
-- 任何执行 `git push` 之前，必须先检查当前分支不是 `codex/website-local`，并确认 `origin/master..HEAD` 中没有网站相关提交。
-- 建议在 push 前固定执行：
+- 执行 `git push` 前，固定检查：
 
 ```bash
 git branch --show-current
@@ -126,23 +132,11 @@ git log --oneline origin/master..HEAD
 git diff --stat origin/master..HEAD
 ```
 
-- 如果需要继续修改网站，先执行 `git switch codex/website-local`；网站部署到 Cloudflare Pages 不依赖 push GitHub。
-- 网站部署默认使用临时 Wrangler 命令：
+## App Store 与 fastlane 约定
 
-```bash
-npx --yes wrangler pages deploy website
-```
-
-- 除非用户明确要求安装全局 `wrangler`，否则优先使用上述 `npx` 方式，不要依赖本机全局安装。
-
-## App Store 与证书管理约定
-
-- 对于 App Store Connect 上传、TestFlight、正式发布、证书、provisioning profile、签名配置等事项，默认优先使用 `fastlane`。
-- 手工点 Xcode、手工切签名、手工上传只作为排障或临时兜底，不再作为主流程。
-- 若仓库里已有 `fastlane/`、`Fastfile`、`Appfile`、`Matchfile` 或相关 lane，优先在现有配置上扩展。
-- 若用户要求“搞定上架”“管理证书”“自动化发布”，优先补 fastlane lane，而不是继续堆一次性 shell 脚本。
-- 证书、profile、上传、提审相关能力应尽量沉淀进 fastlane，保证后续可重复执行。
-- 常规 App Store 发布步骤默认按以下顺序执行：
+- App Store Connect 上传、TestFlight、正式发布、证书、profile、签名配置默认优先使用 `fastlane`。
+- 手工点 Xcode 和手工上传只作为排障手段。
+- 常规发布步骤：
 
 ```bash
 bundle exec fastlane mac bump_version version:X.Y.Z
@@ -151,22 +145,20 @@ bundle exec fastlane mac build_app_store
 bundle exec fastlane mac upload_app_store
 ```
 
-- 若用户明确要求一条命令串起上述流程，可使用：
+- 一键发布：
 
 ```bash
 bundle exec fastlane mac release_app_store
 ```
 
-每次发布新版本时：
-
-- 先更新 `Sources/MacBar/Info.plist` 和 `Sources/MacBar/AppVersion.swift` 的版本号。
-- 提交并推送应用代码前，先确认当前分支不是 `codex/website-local`。
-- 通过 fastlane 完成签名、构建和上传，不再通过 GitHub Releases 分发安装包。
-- 如果官网需要同步文案或链接，切到 `codex/website-local` 单独处理并用 Wrangler 部署。
+- 发布前先更新：
+  - `Sources/MacBar/Info.plist`
+  - `Sources/MacBar/AppVersion.swift`
 
 ## 交付前检查
 
 - 先跑 `swift build`
-- 如果改了本地化 key，检查 7 个受支持语言文件是否都已补齐
-- 如果改了热键、面板、OCR、复制后返回原应用或 App Store 发布流程，优先在 Xcode 中做一次手动验证
+- 如果改了 `project.yml`，确认执行过 `xcodegen generate`
+- 如果改了 OCR、热键、复制语义、预览区、设置窗口、面板关闭逻辑，优先在 Xcode 做一次手动验证
+- 如果改了文案，确认 7 种语言都已补齐
 - 如仓库里存在与你任务无关的脏改动，不要回滚它们
